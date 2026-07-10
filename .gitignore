@@ -1,0 +1,57 @@
+# ==========================================
+# Git Ignore Config for Space Shuttle App Workspace
+# ==========================================
+
+# OS/System Files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.history/
+
+# AI Tools and Assistant Metadata
+.antigravitycli/
+.claude/
+.qoder/
+
+# Compiled Binaries (Very Large, platform-specific)
+bin/
+**/bin/
+
+# Build Directories (C++ and Flutter build outputs)
+**/build/
+**/build-*/
+marian/build/
+sherpa-onnx/build/
+sherpa-onnx/build-ios/
+sherpa-onnx/build-swift-macos/
+
+# Flutter specific ignores (in addition to voice_app/.gitignore)
+voice_app/.dart_tool/
+voice_app/.flutter-plugins
+voice_app/.flutter-plugins-dependencies
+voice_app/.pub-cache/
+voice_app/.pub/
+voice_app/build/
+voice_app/android/app/debug/
+voice_app/android/app/profile/
+voice_app/android/app/release/
+
+# Large Model Files (ML models, ONNX files, Archive packages)
+# Note: These files are very large (2.4GB+ total) and will exceed Git/GitHub limits (100MB per file).
+# They should be downloaded separately on the target machine or tracked using Git LFS.
+model/
+*.onnx
+*.tar.gz
+*.tar.bz2
+*.zip
+
+# Audio/Wav test datasets (Large audio files)
+wav/
+*.wav

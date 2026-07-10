@@ -1,0 +1,37 @@
+name: voice_app
+description: A cross-platform Flutter application for ASR and TTS using sherpa-onnx.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ">=2.17.0 <4.0.0"
+  flutter: ">=2.8.1"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.6
+  path_provider: ^2.1.3
+  path: ^1.9.0
+  record: ^6.1.2
+  audioplayers: ^5.0.0
+  sherpa_onnx:
+    path: ../sherpa-onnx/flutter/sherpa_onnx
+  marian_nmt_macos:
+    path: ../marian/flutter/marian_nmt_macos
+  file_picker: ^11.0.2
+  archive: ^4.0.9
+  ffi: ^2.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/espeak-ng-data.zip
+    - assets/silero_vad.onnx
