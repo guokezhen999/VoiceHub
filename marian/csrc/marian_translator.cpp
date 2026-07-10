@@ -7,6 +7,7 @@
 #include <numeric>
 #include <queue>
 #include <sstream>
+#include <unordered_map>
 
 #include "nlohmann/json.hpp"
 #include "onnxruntime_cxx_api.h"
@@ -216,35 +217,38 @@ std::vector<float> MarianTranslator::RunDecoderStep(
   // Build tensors keyed by name, then emit in model order.
   std::unordered_map<std::string, Ort::Value> tensor_map;
 
+  // NOTE: All data vectors MUST outlive the Ort::Value tensors created below.
+  // Ort::Value::CreateTensor does NOT copy data — it only holds pointers.
+  // These are declared here (not in inner scopes) to stay alive through session->Run().
+
   // input_ids: [1, dec_seq_len] (int64).
-  {
-    std::vector<int64_t> shape = {batch_size, dec_seq_len};
-    std::vector<int64_t> ids_copy = decoder_input_ids;
-    tensor_map["input_ids"] = Ort::Value::CreateTensor<int64_t>(
-        onnx_->memory_info, ids_copy.data(), ids_copy.size(),
-        shape.data(), shape.size());
-  }
+  std::vector<int64_t> ids_shape = {batch_size, dec_seq_len};
+  std::vector<int64_t> ids_copy = decoder_input_ids;
+  tensor_map["input_ids"] = Ort::Value::CreateTensor<int64_t>(
+      onnx_->memory_info, ids_copy.data(), ids_copy.size(),
+      ids_shape.data(), ids_shape.size());
 
   // encoder_hidden_states: [1, enc_seq_len, d_model].
-  {
-    std::vector<int64_t> shape = {batch_size, enc_seq_len, d_model};
-    tensor_map["encoder_hidden_states"] = Ort::Value::CreateTensor<float>(
-        onnx_->memory_info,
-        const_cast<float*>(encoder_hidden_states.data()),
-        encoder_hidden_states.size(),
-        shape.data(), shape.size());
-  }
+  std::vector<int64_t> enc_shape = {batch_size, enc_seq_len, d_model};
+  tensor_map["encoder_hidden_states"] = Ort::Value::CreateTensor<float>(
+      onnx_->memory_info,
+      const_cast<float*>(encoder_hidden_states.data()),
+      encoder_hidden_states.size(),
+      enc_shape.data(), enc_shape.size());
 
   // encoder_attention_mask: [1, enc_seq_len] (int64).
-  {
-    std::vector<int64_t> shape = {batch_size, enc_seq_len};
-    std::vector<int64_t> mask_copy = encoder_attention_mask;
-    tensor_map["encoder_attention_mask"] = Ort::Value::CreateTensor<int64_t>(
-        onnx_->memory_info, mask_copy.data(), mask_copy.size(),
-        shape.data(), shape.size());
-  }
+  std::vector<int64_t> mask_shape = {batch_size, enc_seq_len};
+  std::vector<int64_t> mask_copy = encoder_attention_mask;
+  tensor_map["encoder_attention_mask"] = Ort::Value::CreateTensor<int64_t>(
+      onnx_->memory_info, mask_copy.data(), mask_copy.size(),
+      mask_shape.data(), mask_shape.size());
 
   // Add empty past_key_values tensors for KV-cache models.
+  // These vectors must also outlive the session->Run() call.
+  std::vector<int64_t> kv_shape;
+  std::vector<float> empty_kv;
+  bool use_cache_val = false;
+  int64_t use_cache_shape = 1;
   if (onnx_->decoder_has_kv_cache) {
     int32_t num_layers = onnx_->num_decoder_layers > 0
                              ? onnx_->num_decoder_layers
@@ -254,8 +258,7 @@ std::vector<float> MarianTranslator::RunDecoderStep(
                             : config_.decoder_attention_heads;
     int64_t head_dim = onnx_->head_dim > 0 ? onnx_->head_dim : 64;
 
-    std::vector<int64_t> kv_shape = {batch_size, num_heads, 0, head_dim};
-    std::vector<float> empty_kv;
+    kv_shape = {batch_size, num_heads, 0, head_dim};
 
     for (int32_t layer = 0; layer < num_layers; layer++) {
       auto key_tensor = Ort::Value::CreateTensor<float>(
@@ -281,8 +284,8 @@ std::vector<float> MarianTranslator::RunDecoderStep(
     // use_cache_branch: bool tensor, false = first step (no cache).
     tensor_map["use_cache_branch"] = Ort::Value::CreateTensor<bool>(
         onnx_->memory_info,
-        std::vector<bool>{false}.data(), 1,
-        std::vector<int64_t>{1}.data(), 1);
+        &use_cache_val, 1,
+        &use_cache_shape, 1);
   }
 
   // Emit tensors in model input order.
@@ -296,25 +299,6 @@ std::vector<float> MarianTranslator::RunDecoderStep(
       // Unknown input: create a dummy empty float tensor.
       input_tensors.push_back(Ort::Value::CreateTensor<float>(
           onnx_->memory_info, nullptr, 0, nullptr, 0));
-    }
-  }
-
-  auto outputs = onnx_->decoder_session->Run(
-      onnx_->run_opts,
-      onnx_->decoder_input_names.data(),
-      input_tensors.data(),
-      input_tensors.size(),
-      onnx_->decoder_output_names.data(),
-      onnx_->decoder_output_names.size());
-      auto key_tensor = Ort::Value::CreateTensor<float>(
-          onnx_->memory_info, empty_kv.data(), 0,
-          kv_shape.data(), kv_shape.size());
-      input_tensors.push_back(std::move(key_tensor));
-
-      auto value_tensor = Ort::Value::CreateTensor<float>(
-          onnx_->memory_info, empty_kv.data(), 0,
-          kv_shape.data(), kv_shape.size());
-      input_tensors.push_back(std::move(value_tensor));
     }
   }
 
