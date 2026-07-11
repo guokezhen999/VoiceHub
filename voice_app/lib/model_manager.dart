@@ -18,7 +18,7 @@ class ModelInfo {
   final String name;
   final String language;
   final String path; // Root folder path of the model
-  final String type; // 'asr', 'tts', or 'nmt'
+  final String type; // 'asr', 'tts', 'nmt', or 'llm'
 
   ModelInfo({
     required this.name,
@@ -339,6 +339,9 @@ class ModelInfo {
   String? get nmtDecoderPath => _findFile('decoder_model.onnx');
   String? get nmtVocabPath => _findFile('vocab.json');
 
+  // LLM specific resolved paths
+  String? get llmModelPath => _findFileEndingWith('.gguf');
+
   // TTS specific resolved paths
   String? get ttsEncoderPath => _findFile('encoder.onnx');
   String? get ttsDecoderPath => _findFile('decoder.onnx');
@@ -454,6 +457,19 @@ class ModelInfo {
     return null;
   }
 
+  String? _findFileEndingWith(String suffix) {
+    final dir = Directory(path);
+    if (!dir.existsSync()) return null;
+    try {
+      for (var entity in dir.listSync(recursive: true)) {
+        if (entity is File && entity.path.endsWith(suffix)) {
+          return entity.path;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   bool get isValid {
     if (type == 'asr') {
       return asrEncoderPath != null &&
@@ -466,6 +482,8 @@ class ModelInfo {
       return nmtEncoderPath != null &&
           nmtDecoderPath != null &&
           nmtVocabPath != null;
+    } else if (type == 'llm') {
+      return llmModelPath != null;
     }
     return false;
   }
@@ -540,26 +558,43 @@ class ModelManager {
     if (!typeRoot.existsSync()) return models;
 
     try {
-      // List language directories
-      final langEntities = typeRoot.listSync(recursive: false);
-      for (var langEntity in langEntities) {
-        if (langEntity is Directory) {
-          final language = p.basename(langEntity.path);
-          
-          // List model folders inside this language
-          final modelEntities = langEntity.listSync(recursive: false);
-          for (var modelEntity in modelEntities) {
-            if (modelEntity is Directory) {
-              final modelName = p.basename(modelEntity.path);
-              final modelInfo = ModelInfo(
-                name: modelName,
-                language: language,
-                path: modelEntity.path,
-                type: type,
-              );
-              // Only include if it has the required files
-              if (modelInfo.isValid) {
-                models.add(modelInfo);
+      if (type == 'llm') {
+        // LLM models are stored flat: models/llm/{model-name}/
+        // A single LLM model supports all language pairs.
+        final modelEntities = typeRoot.listSync(recursive: false);
+        for (var modelEntity in modelEntities) {
+          if (modelEntity is Directory) {
+            final modelName = p.basename(modelEntity.path);
+            final modelInfo = ModelInfo(
+              name: modelName,
+              language: 'multi',  // supports all language pairs
+              path: modelEntity.path,
+              type: type,
+            );
+            if (modelInfo.isValid) {
+              models.add(modelInfo);
+            }
+          }
+        }
+      } else {
+        // ASR/TTS/NMT: models/{type}/{language-pair}/{model-name}/
+        final langEntities = typeRoot.listSync(recursive: false);
+        for (var langEntity in langEntities) {
+          if (langEntity is Directory) {
+            final language = p.basename(langEntity.path);
+            final modelEntities = langEntity.listSync(recursive: false);
+            for (var modelEntity in modelEntities) {
+              if (modelEntity is Directory) {
+                final modelName = p.basename(modelEntity.path);
+                final modelInfo = ModelInfo(
+                  name: modelName,
+                  language: language,
+                  path: modelEntity.path,
+                  type: type,
+                );
+                if (modelInfo.isValid) {
+                  models.add(modelInfo);
+                }
               }
             }
           }
@@ -580,7 +615,9 @@ class ModelManager {
     Function(double)? onProgress,
   }) async {
     final typeRoot = await getTypeRoot(type);
-    final destPath = p.join(typeRoot.path, language, modelName);
+    final destPath = type == 'llm'
+        ? p.join(typeRoot.path, modelName)
+        : p.join(typeRoot.path, language, modelName);
     final destDir = Directory(destPath);
     if (destDir.existsSync()) {
       await destDir.delete(recursive: true);
@@ -593,7 +630,7 @@ class ModelManager {
     // First find base path in the source directory
     String? basePath;
     for (var entity in files) {
-      if (entity is File && entity.path.endsWith('.onnx')) {
+      if (entity is File && (entity.path.endsWith('.onnx') || entity.path.endsWith('.gguf'))) {
         basePath = p.dirname(entity.path);
         break;
       }
@@ -670,7 +707,9 @@ class ModelManager {
     Function(double)? onProgress,
   }) async {
     final typeRoot = await getTypeRoot(type);
-    final destPath = p.join(typeRoot.path, language, modelName);
+    final destPath = type == 'llm'
+        ? p.join(typeRoot.path, modelName)
+        : p.join(typeRoot.path, language, modelName);
     final destDir = Directory(destPath);
     if (destDir.existsSync()) {
       await destDir.delete(recursive: true);
@@ -698,7 +737,7 @@ class ModelManager {
     // Find base path in archive
     String? basePath;
     for (final file in archive) {
-      if (file.isFile && file.name.endsWith('.onnx')) {
+      if (file.isFile && (file.name.endsWith('.onnx') || file.name.endsWith('.gguf'))) {
         basePath = p.dirname(file.name);
         break;
       }
@@ -863,6 +902,16 @@ class ModelManager {
         result[path] = 'tokens.txt';
       } else if (name == 'vocab.json') {
         result[path] = 'vocab.json';
+      } else if (name == 'source.spm') {
+        result[path] = 'source.spm';
+      } else if (name == 'target.spm') {
+        result[path] = 'target.spm';
+      } else if (name == 'config.json') {
+        result[path] = 'config.json';
+      } else if (name == 'chat_template.json') {
+        result[path] = 'chat_template.json';
+      } else if (name.endsWith('.gguf')) {
+        result[path] = name;  // Keep GGUF filename as-is
       } else if (name == 'lexicon.txt') {
         result[path] = 'lexicon.txt';
       } else if (name.endsWith('.fst')) {

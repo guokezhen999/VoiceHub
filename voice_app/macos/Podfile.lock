@@ -4,7 +4,11 @@ PODS:
   - file_picker (0.0.1):
     - FlutterMacOS
   - FlutterMacOS (1.0.0)
-  - marian_nmt_macos (1.0.0):
+  - llamacpp_macos (1.0.0)
+  - opus_mt_macos (1.0.0):
+    - FlutterMacOS
+  - path_provider_foundation (0.0.1):
+    - Flutter
     - FlutterMacOS
   - record_macos (1.2.1):
     - FlutterMacOS
@@ -15,7 +19,9 @@ DEPENDENCIES:
   - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos`)
   - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
-  - marian_nmt_macos (from `Flutter/ephemeral/.symlinks/plugins/marian_nmt_macos/macos`)
+  - llamacpp_macos (from `Flutter/ephemeral/.symlinks/plugins/llamacpp_macos/macos`)
+  - opus_mt_macos (from `Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos`)
+  - path_provider_foundation (from `Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin`)
   - record_macos (from `Flutter/ephemeral/.symlinks/plugins/record_macos/macos`)
   - sherpa_onnx_macos (from `Flutter/ephemeral/.symlinks/plugins/sherpa_onnx_macos/macos`)
 
@@ -26,8 +32,12 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
-  marian_nmt_macos:
-    :path: Flutter/ephemeral/.symlinks/plugins/marian_nmt_macos/macos
+  llamacpp_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/llamacpp_macos/macos
+  opus_mt_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos
+  path_provider_foundation:
+    :path: Flutter/ephemeral/.symlinks/plugins/path_provider_foundation/darwin
   record_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/record_macos/macos
   sherpa_onnx_macos:
@@ -36,11 +46,13 @@ EXTERNAL SOURCES:
 SPEC CHECKSUMS:
   audioplayers_darwin: 761f2948df701d05b5db603220c384fb55720012
   file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
-  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
-  marian_nmt_macos: 933261306e3f20a41281c87d23da2007561c97f3
+  FlutterMacOS: 8f6f14fa908a6fb3fba0cd85dbd81ec4b251fb24
+  llamacpp_macos: c080101e7e539cf74b29b7466a84bfe1ea06803e
+  opus_mt_macos: 12f3586f36d67e4f5f5d3b7eef6383b6939549af
+  path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
   record_macos: 5d55909f9650314be6424ffd6b123ac75a08c3c1
   sherpa_onnx_macos: e648c8a9f1a02ec1d7e2788a2963bc86e67e2dd7
 
 PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
 
-COCOAPODS: 1.17.0
+COCOAPODS: 1.16.2

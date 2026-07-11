@@ -14,11 +14,13 @@ Thumbs.db
 *.ipr
 *.iws
 .history/
+**/.cache/
 
 # AI Tools and Assistant Metadata
 .antigravitycli/
 .claude/
 .qoder/
+.vscode/
 
 # Compiled Binaries (Very Large, platform-specific)
 bin/
@@ -27,7 +29,7 @@ bin/
 # Build Directories (C++ and Flutter build outputs)
 **/build/
 **/build-*/
-marian/build/
+opus_mt/build/
 sherpa-onnx/build/
 sherpa-onnx/build-ios/
 sherpa-onnx/build-swift-macos/
@@ -43,14 +45,16 @@ voice_app/android/app/debug/
 voice_app/android/app/profile/
 voice_app/android/app/release/
 
-# Large Model Files (ML models, ONNX files, Archive packages)
-# Note: These files are very large (2.4GB+ total) and will exceed Git/GitHub limits (100MB per file).
-# They should be downloaded separately on the target machine or tracked using Git LFS.
+# Llama Flutter specific ignores
+llama/flutter/llamacpp_macos/.dart_tool/
+llama/flutter/llamacpp_macos/.flutter-plugins
+llama/flutter/llamacpp_macos/.flutter-plugins-dependencies
+llama/flutter/llamacpp_macos/.pub-cache/
+llama/flutter/llamacpp_macos/.pub/
+
+# Large Files (dylibs, ML models, Archive packages)
+*.dylib
 model/
-*.onnx
-*.tar.gz
-*.tar.bz2
-*.zip
 
 # Audio/Wav test datasets (Large audio files)
 wav/

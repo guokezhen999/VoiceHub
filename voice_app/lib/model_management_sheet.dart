@@ -123,6 +123,8 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
 
     final targetLanguage = _currentType == 'nmt'
         ? '$_nmtSourceLanguage-$_nmtTargetLanguage'
+        : _currentType == 'llm'
+        ? 'multi'
         : _selectedLanguage;
 
     try {
@@ -167,7 +169,8 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
           'Model was imported, but validation failed.\n'
           'For ASR: ensure encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt are present.\n'
           'For TTS: ensure a .onnx file and tokens.txt are present.\n'
-          'For NMT: ensure encoder_model.onnx, decoder_model.onnx, vocab.json are present.'
+          'For NMT: ensure encoder_model.onnx, decoder_model.onnx, vocab.json are present.\n'
+          'For LLM: ensure a .gguf file is present.'
         );
       }
 
@@ -339,6 +342,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                         ButtonSegment(value: 'asr', label: Text('ASR (Speech-to-Text)'), icon: Icon(Icons.mic)),
                         ButtonSegment(value: 'tts', label: Text('TTS (Text-to-Speech)'), icon: Icon(Icons.speaker_notes)),
                         ButtonSegment(value: 'nmt', label: Text('NMT (Translation)'), icon: Icon(Icons.translate)),
+                        ButtonSegment(value: 'llm', label: Text('LLM (Translate)'), icon: Icon(Icons.psychology)),
                       ],
                       selected: {_currentType},
                       onSelectionChanged: (value) {

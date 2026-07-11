@@ -4,9 +4,12 @@ import 'package:flutter/services.dart';
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
+import 'llama_nmt_service.dart';
+import 'nmt_service_common.dart';
 
 class TranslationScreen extends StatefulWidget {
-  const TranslationScreen({Key? key}) : super(key: key);
+  final bool showPerfMetrics;
+  const TranslationScreen({Key? key, this.showPerfMetrics = false}) : super(key: key);
 
   @override
   State<TranslationScreen> createState() => _TranslationScreenState();
@@ -15,11 +18,15 @@ class TranslationScreen extends StatefulWidget {
 class _TranslationScreenState extends State<TranslationScreen> {
   final TextEditingController _sourceController = TextEditingController();
   final TextEditingController _targetController = TextEditingController();
-  final TextEditingController _langTokenController = TextEditingController();
 
-  final NativeNmtService _nmtService = NativeNmtService();
+  final NativeNmtService _marianService = NativeNmtService();
+  final LlamaNmtService _llamaService = LlamaNmtService();
   bool _isTranslating = false;
   bool _isInitialized = false;
+
+  // Backend selection
+  String _backendType = 'nmt'; // 'nmt' = Marian ONNX, 'llm' = Llama GGUF
+  static const _backendLabels = {'nmt': 'Marian ONNX', 'llm': 'Llama GGUF'};
 
   // Model selection and language pairs
   List<ModelInfo> _nmtModels = [];
@@ -28,6 +35,12 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
   String _selectedSourceLang = 'Chinese';
   String _selectedTargetLang = 'English';
+
+  // Last translation performance metrics.
+  int? _lastInputTokens;
+  double? _lastEncoderMs;
+  int? _lastDecoderTokens;
+  double? _lastDecoderTokensPerSec;
 
   @override
   void initState() {
@@ -41,7 +54,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
       _loadingModels = true;
     });
 
-    final nmtList = await ModelManager.getModels('nmt');
+    final nmtList = await ModelManager.getModels(_backendType);
 
     setState(() {
       _nmtModels = nmtList;
@@ -49,15 +62,21 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
       // Check if current pair is available in the new models list
       final currentPair = '$_selectedSourceLang-$_selectedTargetLang';
-      final hasCurrentPair = _nmtModels.any((m) => m.language == currentPair);
+      final hasCurrentPair = _isLlamaBackend
+          ? _nmtModels.isNotEmpty  // LLM: any model works for any pair
+          : _nmtModels.any((m) => m.language == currentPair);
 
       // If current selected pair is not available, but we have some models,
       // auto-select the language pair of the first available model.
       if (!hasCurrentPair && _nmtModels.isNotEmpty) {
-        final parts = _nmtModels.first.language.split('-');
-        if (parts.length == 2) {
-          _selectedSourceLang = parts[0];
-          _selectedTargetLang = parts[1];
+        if (_nmtModels.first.language == 'multi') {
+          // LLM model: keep current language selection
+        } else {
+          final parts = _nmtModels.first.language.split('-');
+          if (parts.length == 2) {
+            _selectedSourceLang = parts[0];
+            _selectedTargetLang = parts[1];
+          }
         }
       }
       _updateSelectedNmtModel();
@@ -65,6 +84,12 @@ class _TranslationScreenState extends State<TranslationScreen> {
   }
 
   void _updateSelectedNmtModel() {
+    if (_isLlamaBackend) {
+      // LLM: any model works for all pairs
+      _selectedNmtModel = _nmtModels.isNotEmpty ? _nmtModels.first : null;
+      return;
+    }
+
     final targetPair = '$_selectedSourceLang-$_selectedTargetLang';
     final matchingModels = _nmtModels.where((m) => m.language == targetPair).toList();
 
@@ -81,8 +106,12 @@ class _TranslationScreenState extends State<TranslationScreen> {
     _deinitializeEngine();
   }
 
+  dynamic get _activeService => _backendType == 'llm' ? _llamaService : _marianService;
+  bool get _isLlamaBackend => _backendType == 'llm';
+
   void _deinitializeEngine() {
-    _nmtService.release();
+    _marianService.release();
+    _llamaService.release();
     setState(() {
       _isInitialized = false;
     });
@@ -91,7 +120,15 @@ class _TranslationScreenState extends State<TranslationScreen> {
   Future<void> _initializeEngine() async {
     if (_selectedNmtModel == null) return;
     try {
-      await _nmtService.loadModel(_selectedNmtModel!);
+      if (_isLlamaBackend) {
+        await _llamaService.loadModel(
+          _selectedNmtModel!,
+          sourceLang: _selectedSourceLang,
+          targetLang: _selectedTargetLang,
+        );
+      } else {
+        await _marianService.loadModel(_selectedNmtModel!);
+      }
       setState(() {
         _isInitialized = true;
       });
@@ -127,17 +164,28 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
     setState(() {
       _isTranslating = true;
+      _targetController.text = '';
     });
 
     try {
-      final targetToken = _langTokenController.text.trim();
-      final result = await _nmtService.translate(
-        text,
-        targetLangToken: targetToken.isNotEmpty ? targetToken : null,
-      );
-      setState(() {
-        _targetController.text = result;
-      });
+      final svc = _activeService;
+      await for (final partial in svc.translateStream(text)) {
+        setState(() {
+          _targetController.text = partial;
+        });
+      }
+      // Stream complete — capture timing from the final result.
+      final timing = svc.lastStreamTiming;
+      if (timing != null) {
+        setState(() {
+          _lastInputTokens = timing.inputTokens;
+          _lastEncoderMs = timing.encoderMs;
+          _lastDecoderTokens = timing.decoderTokens;
+          _lastDecoderTokensPerSec = timing.decoderTokensPerSecond >= 0
+              ? timing.decoderTokensPerSecond
+              : null;
+        });
+      }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Translation error: $e')),
@@ -164,7 +212,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => ModelManagementSheet(
-        initialType: 'nmt',
+        initialType: _backendType,
         onModelsChanged: () {
           _loadModels();
         },
@@ -175,7 +223,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
   @override
   Widget build(BuildContext context) {
     final targetPair = '$_selectedSourceLang-$_selectedTargetLang';
-    final currentPairModels = _nmtModels.where((m) => m.language == targetPair).toList();
+    final currentPairModels = _isLlamaBackend
+        ? _nmtModels  // LLM: show all models regardless of pair
+        : _nmtModels.where((m) => m.language == targetPair).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -196,6 +246,33 @@ class _TranslationScreenState extends State<TranslationScreen> {
             ],
           ),
           const SizedBox(height: 16),
+
+          // Backend selector
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Text('Backend: ', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'nmt', label: Text('Marian ONNX')),
+                  ButtonSegment(value: 'llm', label: Text('Llama GGUF')),
+                ],
+                selected: {_backendType},
+                onSelectionChanged: (selected) {
+                  setState(() {
+                    _backendType = selected.first;
+                    _deinitializeEngine();
+                    _loadModels();
+                  });
+                },
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  textStyle: WidgetStateProperty.all(const TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
 
           // Models Configuration Section
           Card(
@@ -296,8 +373,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'No local NMT model installed for $_selectedSourceLang to $_selectedTargetLang.\n'
-                                'Please click the settings icon above to import a model.',
+                                _isLlamaBackend
+                                    ? 'No GGUF model installed.\nPlease click the settings icon to import a model.'
+                                    : 'No local NMT model installed for $_selectedSourceLang to $_selectedTargetLang.\n'
+                                        'Please click the settings icon above to import a model.',
                                 style: TextStyle(color: Colors.amber.shade900, fontSize: 13),
                               ),
                             ),
@@ -339,17 +418,6 @@ class _TranslationScreenState extends State<TranslationScreen> {
                         const SizedBox(height: 12),
                       ],
 
-                      // Target Language Token (Optional)
-                      const Text('Target Lang Prefix Token (Optional, e.g. >>zho<<):', style: TextStyle(fontSize: 12, color: Colors.grey)),
-                      const SizedBox(height: 4),
-                      TextField(
-                        controller: _langTokenController,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                          hintText: 'Leave blank if not needed',
-                        ),
-                      ),
                     ],
                   ],
                 ],
@@ -429,7 +497,52 @@ class _TranslationScreenState extends State<TranslationScreen> {
               fillColor: Colors.white12,
             ),
           ),
+          // Performance metrics display
+          if (widget.showPerfMetrics && _lastEncoderMs != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Performance Metrics',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildMetricRow(
+                    _isLlamaBackend ? 'Prompt:' : 'Encode:',
+                    '${_lastInputTokens} tokens, ${_lastEncoderMs!.toStringAsFixed(1)} ms',
+                  ),
+                  if (_lastDecoderTokensPerSec != null)
+                    _buildMetricRow(
+                      'Decode:',
+                      '${_lastDecoderTokens} tokens, ${_lastDecoderTokensPerSec!.toStringAsFixed(1)} tokens/s',
+                    ),
+                ],
+              ),
+            ),
+          ],
           ], // End of _isInitialized block
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetricRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+          Text(value, style: const TextStyle(fontSize: 13, fontFamily: 'monospace')),
         ],
       ),
     );
@@ -440,8 +553,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
     ModelManager.changeNotifier.removeListener(_loadModels);
     _sourceController.dispose();
     _targetController.dispose();
-    _langTokenController.dispose();
-    _nmtService.release();
+    _marianService.release();
+    _llamaService.release();
     super.dispose();
   }
 }

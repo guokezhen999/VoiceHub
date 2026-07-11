@@ -1,15 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'asr_screen.dart';
 import 'tts_screen.dart';
 import 'translation_screen.dart';
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
+import 'llama_nmt_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  HardwareKeyboard.instance.clearState();
   await ModelManager.ensureEspeakDataExtractor();
   await NativeNmtService.init();
+  await LlamaNmtService.init();
   runApp(const MyApp());
 }
 
@@ -40,17 +44,57 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int _currentIndex = 0;
-  
-  final List<Widget> _screens = [
+  bool _showPerfMetrics = false;
+
+  List<Widget> get _screens => [
     const AsrScreen(),
     const TtsScreen(),
-    const TranslationScreen(),
+    TranslationScreen(showPerfMetrics: _showPerfMetrics),
   ];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.settings),
+          onPressed: () {
+            showModalBottomSheet(
+              context: context,
+              builder: (context) => StatefulBuilder(
+                builder: (context, setModalState) => Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Settings',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 12),
+                      SwitchListTile(
+                        title: const Text('Show performance metrics'),
+                        subtitle: const Text(
+                          'Display encoder time and decoder tokens/second for MT translation',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        value: _showPerfMetrics,
+                        onChanged: (val) {
+                          setModalState(() {});
+                          setState(() {
+                            _showPerfMetrics = val;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+          tooltip: 'Settings',
+        ),
         title: Text(widget.title),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         centerTitle: true,

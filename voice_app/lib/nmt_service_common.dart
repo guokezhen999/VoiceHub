@@ -1,0 +1,86 @@
+/// Shared types used by both Marian ONNX and Llama GGUF NMT services.
+///
+/// Both [NativeNmtService] and [LlamaNmtService] return [TranslationResult]
+/// and use the same Isolate communication protocol.
+
+import 'dart:isolate';
+
+/// Structured result from NMT translation, including timing metrics.
+class TranslationResult {
+  final String text;
+  final int inputTokens;
+  final double encoderMs;   // For LLMs: prompt processing time
+  final double decoderMs;   // Token generation time
+  final int decoderTokens;
+
+  /// Decoder throughput in tokens per second.
+  double get decoderTokensPerSecond {
+    if (decoderMs <= 0.0) return 0.0;
+    return decoderTokens / (decoderMs / 1000.0);
+  }
+
+  const TranslationResult({
+    required this.text,
+    required this.inputTokens,
+    required this.encoderMs,
+    required this.decoderMs,
+    required this.decoderTokens,
+  });
+}
+
+// ---- Background-isolate protocol (shared between both services) ------------
+// These are internal to the service implementations.
+
+/// Sentinel sent by the worker to signal it has finished loading.
+const kNmtReady = 1;
+
+/// Sentinel sent to the worker to request shutdown.
+const kNmtShutdown = 2;
+
+/// Initialisation message sent to the worker isolate.
+class NmtWorkerInit {
+  final SendPort sendPort;
+  final String modelPath; // For LLM: .gguf path; for Marian: model dir
+  final int numBeams;     // Marian only
+  final int maxLength;
+  final int numThreads;
+  final int nGpuLayers;   // Llama only (-1 = all)
+  final String? sourceLang;  // Llama only
+  final String? targetLang;  // Llama only
+  const NmtWorkerInit({
+    required this.sendPort,
+    required this.modelPath,
+    this.numBeams = 1,
+    this.maxLength = 512,
+    this.numThreads = 4,
+    this.nGpuLayers = -1,
+    this.sourceLang,
+    this.targetLang,
+  });
+}
+
+/// Request the worker to translate [text], reply on [replyPort].
+class NmtTranslateRequest {
+  final String text;
+  final SendPort replyPort;
+  const NmtTranslateRequest({required this.text, required this.replyPort});
+}
+
+/// Request the worker to translate [text] with streaming, reply on [replyPort].
+class NmtTranslateStreamRequest {
+  final String text;
+  final SendPort replyPort;
+  const NmtTranslateStreamRequest({required this.text, required this.replyPort});
+}
+
+/// Error response from the worker.
+class NmtWorkerError {
+  final String error;
+  const NmtWorkerError(this.error);
+}
+
+/// A streaming partial translation token sent from the worker to the main isolate.
+class NmtStreamToken {
+  final String text;
+  const NmtStreamToken(this.text);
+}
