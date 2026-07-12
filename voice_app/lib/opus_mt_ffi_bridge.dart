@@ -8,7 +8,7 @@
 //
 // Usage:
 //   await OpusMtBridge.init();                   // Load the native library.
-//   final handle = OpusMtBridge.createTranslator(modelDir, numBeams: 4);
+//   final handle = OpusMtBridge.createTranslator(modelDir, maxLength: 512);
 //   final result = OpusMtBridge.translate(handle, "Hello world");
 //   print(result);
 //   OpusMtBridge.destroyTranslator(handle);
@@ -21,9 +21,9 @@ import 'package:opus_mt_macos/opus_mt_macos.dart';
 // C type aliases for dart:ffi.
 // OpusMtTranslatorHandle* is an opaque pointer => we use Pointer<Void>.
 typedef _CreateNative = Pointer<Void> Function(
-    Pointer<Utf8> modelDir, Int32 numBeams, Int32 maxLen, Int32 numThreads);
+    Pointer<Utf8> modelDir, Int32 maxLen, Int32 numThreads);
 typedef _CreateDart = Pointer<Void> Function(
-    Pointer<Utf8> modelDir, int numBeams, int maxLen, int numThreads);
+    Pointer<Utf8> modelDir, int maxLen, int numThreads);
 
 typedef _TranslateNative = Pointer<Utf8> Function(
     Pointer<Void> handle, Pointer<Utf8> sourceText);
@@ -125,16 +125,16 @@ class OpusMtBridge {
 
   /// Create a translator handle for the model at [modelDir].
   ///
-  /// [modelDir] must contain: encoder.onnx, decoder.onnx, vocab.json.
+  /// [modelDir] must contain: encoder.onnx, decoder.onnx, decoder_init.onnx,
+  /// decoder.onnx.data (if shared weights), vocab.json.
   /// Optionally: config.json, source.spm, target.spm.
   Pointer<Void> createTranslator(
     String modelDir, {
-    int numBeams = 4,
     int maxLength = 512,
     int numThreads = 4,
   }) {
     final dirPtr = modelDir.toNativeUtf8();
-    final handle = _createTranslator(dirPtr, numBeams, maxLength, numThreads);
+    final handle = _createTranslator(dirPtr, maxLength, numThreads);
     calloc.free(dirPtr);
     return handle;
   }

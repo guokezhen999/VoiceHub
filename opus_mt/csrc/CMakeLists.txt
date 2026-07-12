@@ -40,6 +40,7 @@ endif()
 
 if(OPUS_MT_USE_SYSTEM_ONNXRUNTIME)
     find_package(onnxruntime REQUIRED)
+    set(ONNXRUNTIME_TARGET onnxruntime::onnxruntime)
 else()
     # Search in common locations.
     # Prefer sherpa-onnx build directories to avoid version conflicts.
@@ -74,6 +75,7 @@ else()
     set_target_properties(onnxruntime PROPERTIES
         IMPORTED_LOCATION "${ONNXRUNTIME_LIB}"
         INTERFACE_INCLUDE_DIRECTORIES "${ONNXRUNTIME_INCLUDE_DIR}")
+    set(ONNXRUNTIME_TARGET onnxruntime)
 endif()
 
 # ---- SentencePiece (optional) -----------------------------------------------
@@ -127,7 +129,7 @@ target_include_directories(opus_mt
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
     PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR})
 
-target_link_libraries(opus_mt PRIVATE onnxruntime)
+target_link_libraries(opus_mt PRIVATE ${ONNXRUNTIME_TARGET})
 
 if(OPUS_MT_USE_SENTENCEPIECE)
     target_compile_definitions(opus_mt PRIVATE OPUS_MT_USE_SENTENCEPIECE)
@@ -143,6 +145,17 @@ if(APPLE AND OPUS_MT_BUILD_SHARED)
 endif()
 
 # ---- Installation -----------------------------------------------------------
+
+# ---- Test executable (optional) ----------------------------------------------
+option(OPUS_MT_BUILD_TEST "Build inference test executable" OFF)
+
+if(OPUS_MT_BUILD_TEST)
+    add_executable(test_opus_mt_inference test_opus_mt_inference.cpp)
+    target_include_directories(test_opus_mt_inference
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR})
+    target_link_libraries(test_opus_mt_inference PRIVATE opus_mt)
+endif()
 
 install(TARGETS opus_mt
     LIBRARY DESTINATION lib

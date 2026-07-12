@@ -191,11 +191,9 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
                                             static_cast<int32_t>(prompt_tokens.size()));
 
     if (llama_decode(ctx_, batch) != 0) {
-        llama_batch_free(batch);
         error_ = "llama_decode failed on prompt";
         return result;
     }
-    llama_batch_free(batch);
 
     auto t_prompt_end = std::chrono::high_resolution_clock::now();
     result.prompt_ms = std::chrono::duration<double, std::milli>(
@@ -220,11 +218,9 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
         llama_batch single = llama_batch_get_one(&next_token, 1);
 
         if (llama_decode(ctx_, single) != 0) {
-            llama_batch_free(single);
             error_ = "llama_decode failed at token " + std::to_string(i);
             return result;
         }
-        llama_batch_free(single);
 
         // Callback with cumulative partial text.
         if (on_token) {

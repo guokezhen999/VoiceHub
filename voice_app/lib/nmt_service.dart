@@ -17,7 +17,7 @@ class NmtService {
 
     try {
       final onnxModel = LocalOnnxModel();
-      // Initialize with the directory containing encoder_model.onnx, decoder_model.onnx, vocab.json
+      // Initialize with the directory containing encoder.onnx, decoder.onnx, decoder_init.onnx, vocab.json
       await onnxModel.init(modelBasePath: modelInfo.path);
       _model = onnxModel;
       _currentModel = modelInfo;

@@ -39,4 +39,11 @@ post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_macos_build_settings(target)
   end
+  # Use Homebrew rsync to work around macOS openrsync SIGKILL bug with large files.
+  frameworks_script = File.join(installer.sandbox.root, 'Target Support Files', 'Pods-Runner', 'Pods-Runner-frameworks.sh')
+  if File.exist?(frameworks_script)
+    content = File.read(frameworks_script)
+    content.gsub!(%r{(?<!/opt/homebrew/bin/)rsync }, '/opt/homebrew/bin/rsync ')
+    File.write(frameworks_script, content)
+  end
 end

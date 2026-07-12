@@ -67,7 +67,6 @@ bool LoadConfigJson(const std::string& model_dir, opus_mt::OpusMtConfig& cfg) {
   cfg.encoder_attention_heads = safe_int("encoder_attention_heads", cfg.encoder_attention_heads);
   cfg.decoder_attention_heads = safe_int("decoder_attention_heads", cfg.decoder_attention_heads);
   cfg.decoder_ffn_dim = safe_int("decoder_ffn_dim", cfg.decoder_ffn_dim);
-  cfg.num_beams = safe_int("num_beams", cfg.num_beams);
   cfg.max_length = safe_int("max_length", cfg.max_length);
   cfg.use_cache = safe_bool("use_cache", cfg.use_cache);
   cfg.max_length = safe_int("max_position_embeddings", cfg.max_length);
@@ -87,7 +86,6 @@ struct OpusMtTranslatorHandle {
 
 OpusMtTranslatorHandle* opus_mt_create_translator(
     const char* model_dir,
-    int32_t num_beams,
     int32_t max_length,
     int32_t num_threads) {
 
@@ -96,8 +94,8 @@ OpusMtTranslatorHandle* opus_mt_create_translator(
     return nullptr;
   }
 
-  fprintf(stderr, "[opus-mt] create_translator: model_dir=%s beams=%d max_len=%d threads=%d\n",
-          model_dir, num_beams, max_length, num_threads);
+  fprintf(stderr, "[opus-mt] create_translator: model_dir=%s max_len=%d threads=%d\n",
+          model_dir, max_length, num_threads);
 
   auto* handle = new OpusMtTranslatorHandle();
   handle->model_dir = model_dir;
@@ -118,8 +116,8 @@ OpusMtTranslatorHandle* opus_mt_create_translator(
   // Set model file paths from model_dir.
   // Supports both HuggingFace export names (encoder.onnx) and
   // model-manager-renamed names (encoder_model.onnx).
-  cfg.encoder_path = findModelFile({"encoder_model.onnx", "encoder.onnx"});
-  cfg.decoder_path = findModelFile({"decoder_model.onnx", "decoder.onnx"});
+  cfg.encoder_path = findModelFile({"encoder.onnx", "encoder_model.onnx"});
+  cfg.decoder_path = findModelFile({"decoder.onnx", "decoder_model.onnx"});
   cfg.vocab_path = JoinPath(model_dir, "vocab.json");
 
   // Optional SentencePiece model files.
@@ -142,7 +140,6 @@ OpusMtTranslatorHandle* opus_mt_create_translator(
   LoadConfigJson(model_dir, cfg);
 
   // Override with caller-specified parameters.
-  if (num_beams > 0) cfg.num_beams = num_beams;
   if (max_length > 0) cfg.max_length = max_length;
   if (num_threads > 0) {
     cfg.intra_op_num_threads = num_threads;

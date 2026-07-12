@@ -3,6 +3,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "opus_mt_config.h"
@@ -18,19 +19,12 @@ struct Value;
 
 namespace opus_mt {
 
-// Beam search hypothesis.
-struct Hypothesis {
-  std::vector<int64_t> token_ids;
-  float score = 0.0f;
-  bool finished = false;
-};
-
 // Main opus-mt translator engine.
 //
 // Pipeline:
 //   raw text → [OpusMtTokenizer::Encode] → token IDs
 //   → [EncoderSession::Run] → encoder hidden states
-//   → [Decoder autoregressive loop] → predicted IDs
+//   → [Greedy decode + KV-cache] → predicted IDs
 //   → [OpusMtTokenizer::Decode] → translated text
 class OpusMtTranslator {
  public:
@@ -52,7 +46,6 @@ class OpusMtTranslator {
   // on_token is called after each decoder step with the cumulative partial
   // detokenized text. user_data is passed through to the callback.
   // Returns a JSON string with the final text and timing metrics.
-  // Streaming only works for greedy decoding (num_beams == 1).
   std::string TranslateStreaming(
       std::string_view source_text,
       void (*on_token)(const char*, void*),
@@ -80,13 +73,13 @@ class OpusMtTranslator {
                                      const std::vector<float>& encoder_hidden_states,
                                      const std::vector<int64_t>& encoder_attention_mask);
 
+  // First decoder step for KV-cache models (uses init decoder ONNX).
+  std::vector<float> RunDecoderStepInit(const std::vector<int64_t>& decoder_input_ids,
+                                        const std::vector<float>& encoder_hidden_states,
+                                        const std::vector<int64_t>& encoder_attention_mask);
+
   // Greedy decoding: pick the highest-probability token at each step.
   std::vector<int32_t> GreedyDecode(
-      const std::vector<float>& encoder_hidden_states,
-      const std::vector<int64_t>& encoder_attention_mask);
-
-  // Beam search decoding.
-  std::vector<int32_t> BeamSearchDecode(
       const std::vector<float>& encoder_hidden_states,
       const std::vector<int64_t>& encoder_attention_mask);
 
@@ -95,6 +88,13 @@ class OpusMtTranslator {
 
   // Top-k sampling from logits.
   static int32_t Argmax(const float* data, int32_t size);
+
+  // ---- FP16 helpers ----
+  // Read an Ort::Value tensor as float32 data, converting from float16 if needed.
+  static std::vector<float> ReadTensorAsFloat32(const Ort::Value& tensor);
+  // Read float data from an Ort::Value tensor given the total element count.
+  // Handles both float32 and float16 tensors.
+  static std::vector<float> ReadFloatTensor(const Ort::Value& tensor, size_t total_elements);
 
   OpusMtConfig config_;
   OpusMtTokenizer tokenizer_;

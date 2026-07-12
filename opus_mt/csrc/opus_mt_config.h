@@ -23,11 +23,7 @@ struct OpusMtConfig {
 
   // Generation parameters
   int32_t max_length = 512;
-  int32_t num_beams = 4;
   int32_t min_length = 1;
-  float length_penalty = 1.0f;
-  float repetition_penalty = 1.0f;
-  bool no_repeat_ngram_size = 0;
 
   // Model architecture (read from config.json)
   int32_t d_model = 512;

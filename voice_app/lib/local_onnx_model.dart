@@ -26,13 +26,26 @@ class LocalOnnxModel {
     String? tokenizerConfigPath,
     String? generationConfigPath,
   }) async {
-    // Compose file paths if modelBasePath is provided
-    encoderPath ??= modelBasePath != null
-        ? '${modelBasePath.endsWith('/') ? modelBasePath : '$modelBasePath/'}encoder_model.onnx'
+    // Compose file paths if modelBasePath is provided.
+    // Supports both standard names (encoder.onnx) and legacy names (encoder_model.onnx).
+    final base = modelBasePath != null
+        ? (modelBasePath!.endsWith('/') ? modelBasePath! : '$modelBasePath/')
         : '';
-    decoderPath ??= modelBasePath != null
-        ? '${modelBasePath.endsWith('/') ? modelBasePath : '$modelBasePath/'}decoder_model.onnx'
-        : '';
+    if (modelBasePath != null) {
+      // Prefer standard names, fall back to legacy names.
+      encoderPath ??= () {
+        final standard = File('${base}encoder.onnx');
+        if (standard.existsSync()) return standard.path;
+        return '${base}encoder_model.onnx';
+      }();
+      decoderPath ??= () {
+        final standard = File('${base}decoder.onnx');
+        if (standard.existsSync()) return standard.path;
+        return '${base}decoder_model.onnx';
+      }();
+    }
+    encoderPath ??= '';
+    decoderPath ??= '';
     vocabPath ??= modelBasePath != null
         ? '${modelBasePath.endsWith('/') ? modelBasePath : '$modelBasePath/'}vocab.json'
         : '';

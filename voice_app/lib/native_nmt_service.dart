@@ -41,7 +41,6 @@ class NativeNmtService {
   /// Load a opus-mt model from [modelInfo] in a background isolate.
   Future<void> loadModel(
     ModelInfo modelInfo, {
-    int numBeams = 1,
     int maxLength = 512,
     int numThreads = 4,
   }) async {
@@ -58,7 +57,6 @@ class NativeNmtService {
       _WorkerInit(
         sendPort: _workerReceivePort!.sendPort,
         modelDir: modelInfo.path,
-        numBeams: numBeams,
         maxLength: maxLength,
         numThreads: numThreads,
       ),
@@ -207,13 +205,11 @@ const _kShutdown = 2;
 class _WorkerInit {
   final SendPort sendPort;
   final String modelDir;
-  final int numBeams;
   final int maxLength;
   final int numThreads;
   const _WorkerInit({
     required this.sendPort,
     required this.modelDir,
-    required this.numBeams,
     required this.maxLength,
     required this.numThreads,
   });
@@ -272,9 +268,9 @@ void _workerEntryInternal(_WorkerInit init) {
 
   // Look up C functions.
   final createTranslator = lib
-      .lookup<NativeFunction<Pointer<Void> Function(Pointer<Utf8>, Int32, Int32, Int32)>>(
+      .lookup<NativeFunction<Pointer<Void> Function(Pointer<Utf8>, Int32, Int32)>>(
           'opus_mt_create_translator')
-      .asFunction<Pointer<Void> Function(Pointer<Utf8>, int, int, int)>();
+      .asFunction<Pointer<Void> Function(Pointer<Utf8>, int, int)>();
 
   final translate = lib
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>>(
@@ -314,7 +310,7 @@ void _workerEntryInternal(_WorkerInit init) {
   // Create the translator handle.
   final dirPtr = init.modelDir.toNativeUtf8();
   final handle =
-      createTranslator(dirPtr, init.numBeams, init.maxLength, init.numThreads);
+      createTranslator(dirPtr, init.maxLength, init.numThreads);
   calloc.free(dirPtr);
 
   if (handle == nullptr || isReady(handle) == 0) {

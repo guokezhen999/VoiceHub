@@ -76,6 +76,16 @@ if(APPLE AND LLAMACPP_BUILD_SHARED)
         MACOSX_RPATH ON)
 endif()
 
+# ---- Test executable ---------------------------------------------------------
+
+add_executable(test_llamacpp_inference test_llamacpp_inference.cpp)
+target_include_directories(test_llamacpp_inference
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+    PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR}
+    PRIVATE "${LLAMA_CPP_DIR}/include"
+    PRIVATE "${LLAMA_CPP_DIR}/src")
+target_link_libraries(test_llamacpp_inference PRIVATE llama)
+
 # ---- Installation -----------------------------------------------------------
 
 install(TARGETS llamacpp_nmt

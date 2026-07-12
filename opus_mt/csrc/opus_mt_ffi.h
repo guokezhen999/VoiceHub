@@ -23,6 +23,8 @@ typedef void (*opus_mt_token_callback)(const char* partial_text, void* user_data
 // The model_dir must contain:
 //   - encoder.onnx
 //   - decoder.onnx
+//   - decoder_init.onnx
+//   - decoder.onnx.data       (external weights for shared-weight layout)
 //   - vocab.json
 //   - config.json (optional)
 //   - source.spm / target.spm (optional, for sentencepiece mode)
@@ -30,7 +32,6 @@ typedef void (*opus_mt_token_callback)(const char* partial_text, void* user_data
 // Returns NULL on failure. Call opus_mt_last_error() for details.
 OpusMtTranslatorHandle* opus_mt_create_translator(
     const char* model_dir,
-    int32_t num_beams,
     int32_t max_length,
     int32_t num_threads);
 
@@ -46,9 +47,6 @@ const char* opus_mt_translate(
 // translation text. user_data is passed through to the callback.
 // Returns a JSON string with the final text and timing metrics, or NULL on error.
 // The caller must free the result with opus_mt_free_string().
-//
-// NOTE: Streaming callbacks only fire for greedy decoding (num_beams == 1).
-// For beam search, on_token is never called and only the final result is returned.
 const char* opus_mt_translate_streaming(
     OpusMtTranslatorHandle* handle,
     const char* source_text,

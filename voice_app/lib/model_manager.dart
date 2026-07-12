@@ -335,8 +335,9 @@ class ModelInfo {
   }
 
   // NMT specific resolved paths
-  String? get nmtEncoderPath => _findFile('encoder_model.onnx');
-  String? get nmtDecoderPath => _findFile('decoder_model.onnx');
+  String? get nmtEncoderPath => _findFile('encoder.onnx');
+  String? get nmtDecoderPath => _findFile('decoder.onnx');
+  String? get nmtDecoderInitPath => _findFile('decoder_init.onnx');
   String? get nmtVocabPath => _findFile('vocab.json');
 
   // LLM specific resolved paths
@@ -481,6 +482,7 @@ class ModelInfo {
     } else if (type == 'nmt') {
       return nmtEncoderPath != null &&
           nmtDecoderPath != null &&
+          nmtDecoderInitPath != null &&
           nmtVocabPath != null;
     } else if (type == 'llm') {
       return llmModelPath != null;
@@ -879,8 +881,27 @@ class ModelManager {
       if (bestDecoder != null) result[bestDecoder] = 'decoder.onnx';
       if (bestJoiner != null) result[bestJoiner] = 'joiner.onnx';
     } else if (type == 'nmt') {
-      if (bestEncoder != null) result[bestEncoder] = 'encoder_model.onnx';
-      if (bestDecoder != null) result[bestDecoder] = 'decoder_model.onnx';
+      if (bestEncoder != null) result[bestEncoder] = 'encoder.onnx';
+      if (bestDecoder != null) {
+        // decoder.onnx may have an external data companion (.onnx.data)
+        result[bestDecoder] = 'decoder.onnx';
+        // Also carry over any .onnx.data file for the decoder
+        final decoderDataFile = srcPaths.firstWhere(
+          (sp) => p.basename(sp) == 'decoder.onnx.data',
+          orElse: () => '',
+        );
+        if (decoderDataFile.isNotEmpty) {
+          result[decoderDataFile] = 'decoder.onnx.data';
+        }
+        // Also carry over the decoder init model
+        final initFile = srcPaths.firstWhere(
+          (sp) => p.basename(sp) == 'decoder_init.onnx',
+          orElse: () => '',
+        );
+        if (initFile.isNotEmpty) {
+          result[initFile] = 'decoder_init.onnx';
+        }
+      }
     } else if (type == 'tts') {
       if (bestEncoder != null && bestDecoder != null) {
         result[bestEncoder] = 'encoder.onnx';
