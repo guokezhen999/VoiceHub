@@ -9,6 +9,7 @@ import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
 import 'llama_nmt_service.dart';
+import 'cascade_translation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -390,6 +391,60 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                   ),
                 ],
+              ),
+              const SizedBox(height: 16),
+              // Full-width Cascade Voice Translation card
+              SizedBox(
+                height: 95,
+                width: double.infinity,
+                child: GridMenuCard(
+                  title: 'Cascade Translation (级联语音翻译)',
+                  description: 'End-to-end voice translation (ASR -> MT -> TTS)',
+                  icon: Icons.layers_rounded,
+                  gradientColors: const [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ValueListenableBuilder<bool>(
+                          valueListenable: MyHomePage.showPerfMetricsNotifier,
+                          builder: (context, showPerfMetrics, _) {
+                            return Scaffold(
+                              appBar: AppBar(
+                                title: const Text('Cascade Voice Translation'),
+                                centerTitle: true,
+                                actions: [
+                                  IconButton(
+                                    icon: const Icon(Icons.settings_outlined),
+                                    onPressed: () => showSettingsBottomSheet(context),
+                                    tooltip: 'Settings',
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.folder_shared_outlined),
+                                    onPressed: () {
+                                      showModalBottomSheet(
+                                        context: context,
+                                        isScrollControlled: true,
+                                        backgroundColor: Colors.transparent,
+                                        builder: (context) => ModelManagementSheet(
+                                          initialType: 'asr',
+                                          onModelsChanged: () {},
+                                        ),
+                                      );
+                                    },
+                                    tooltip: 'Manage Models',
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ),
+                              body: CascadeTranslationScreen(showPerfMetrics: showPerfMetrics),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 16),
               // Full-width Model Warehouse card

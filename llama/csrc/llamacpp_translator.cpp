@@ -11,6 +11,25 @@
 #include <vector>
 #include <string>
 #include <stdexcept>
+#include <regex>
+
+// ---------------------------------------------------------------------------
+// Strip <think>...</think> blocks and leading </think> from model output
+// ---------------------------------------------------------------------------
+
+static std::string StripThinkingBlock(const std::string& text) {
+    std::string result = text;
+
+    // Remove all <think>...</think> blocks (including multiline)
+    static const std::regex think_block(R"(<think>[\s\S]*?</think>)");
+    result = std::regex_replace(result, think_block, "");
+
+    // Remove any standalone leading </think> (with optional surrounding whitespace)
+    static const std::regex leading_close(R"(^\s*</think>\s*)");
+    result = std::regex_replace(result, leading_close, "");
+
+    return result;
+}
 
 // ---------------------------------------------------------------------------
 // Default templates
@@ -245,7 +264,7 @@ std::string LlamaTranslator::BuildPrompt(const std::string& source_text) {
 
     std::string prompt(buf.data(), n);
 
-    if (config_.chat_mode && !config_.enable_thinking) {
+    if (!config_.enable_thinking) {
         // Append </think> to bypass reasoning model thinking blocks
         prompt += "</think>\n";
     }
@@ -365,6 +384,9 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
         // Callback with cumulative partial text.
         if (on_token) {
             partial = LlamaTokenizer(vocab_).Decode(result.tokens);
+            if (!config_.enable_thinking) {
+                partial = StripThinkingBlock(partial);
+            }
             on_token(partial);
         }
     }
@@ -403,6 +425,9 @@ std::string LlamaTranslator::Translate(const std::string& source_text) {
 
         // 4. Detokenize.
         std::string output = tokenizer.Decode(result.tokens);
+        if (!config_.enable_thinking) {
+            output = StripThinkingBlock(output);
+        }
 
         return FormatResult(output,
                             static_cast<int>(input_tokens.size()),
@@ -429,6 +454,9 @@ std::string LlamaTranslator::TranslateStreaming(const std::string& source_text,
         DecodeResult result = RunDecode(input_tokens, on_token);
 
         std::string output = tokenizer.Decode(result.tokens);
+        if (!config_.enable_thinking) {
+            output = StripThinkingBlock(output);
+        }
 
         return FormatResult(output,
                             static_cast<int>(input_tokens.size()),

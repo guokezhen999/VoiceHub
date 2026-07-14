@@ -70,7 +70,7 @@ LlamaTranslatorHandle* llamacpp_create_translator(
     h->config.n_gpu_layers  = n_gpu_layers;
     h->config.max_tokens    = max_tokens;
     h->config.chat_mode     = (chat_mode != 0);
-    h->config.enable_thinking = (chat_mode != 2);
+    h->config.enable_thinking = (chat_mode == 1);
     h->config.system_prompt = system_prompt ? system_prompt : "";
 
     if (!h->translator.Init(h->config)) {

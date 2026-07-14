@@ -115,10 +115,11 @@ class DecoderInitOnnx(nn.Module):
         cache = out.past_key_values
         results = [logits]
         for i in range(self.num_layers):
-            results.append(cache.self_attention_cache[i][0])   # decoder key   (sk)
-            results.append(cache.self_attention_cache[i][1])   # decoder value (sv)
-            results.append(cache.cross_attention_cache[i][0])  # encoder key   (ek)
-            results.append(cache.cross_attention_cache[i][1])  # encoder value (ev)
+            # 兼容老版/部分新版返回的 Tuple 结构：每一层包含 (sk, sv, ek, ev)
+            results.append(cache[i][0])   # decoder key   (sk)
+            results.append(cache[i][1])   # decoder value (sv)
+            results.append(cache[i][2])   # encoder key   (ek)
+            results.append(cache[i][3])   # encoder value (ev)
         return tuple(results)
 
 
@@ -167,10 +168,11 @@ class DecoderStepOnnx(nn.Module):
         cache = out.past_key_values
         results = [logits]
         for i in range(self.num_layers):
-            results.append(cache.self_attention_cache[i][0])   # dk (updated)
-            results.append(cache.self_attention_cache[i][1])   # dv (updated)
-            results.append(cache.cross_attention_cache[i][0])  # ek (unchanged)
-            results.append(cache.cross_attention_cache[i][1])  # ev (unchanged)
+            # 兼容 Tuple 结构的输出获取
+            results.append(cache[i][0])   # dk (updated)
+            results.append(cache[i][1])   # dv (updated)
+            results.append(cache[i][2])   # ek (unchanged)
+            results.append(cache[i][3])   # ev (unchanged)
         return tuple(results)
 
 
@@ -245,12 +247,7 @@ def export_encoder(model, output_path: Path, enc_seq_len: int = 16):
 
 
 def export_decoder_full(model, output_path: Path, enc_seq_len: int = 16):
-    """Export full decoder WITHOUT KV cache — for quantization calibration only.
-
-    This model has ALL weights and consistent activation distributions across
-    all layers, making it the ideal target for static quantization.  The
-    resulting quantization parameters are then injected into the split
-    decoder_init + decoder_step models that are actually used at runtime."""
+    """Export full decoder WITHOUT KV cache — for quantization calibration only."""
     d_model = model.config.d_model
     dec_seq_len = 4  # must be > 1 to trace the multi-token attention path
 
@@ -333,11 +330,7 @@ def export_decoder_init(model, output_path: Path, enc_seq_len: int = 16):
 
 
 def export_decoder_step(model, output_path: Path, enc_seq_len: int = 16):
-    """Export incremental-step decoder.
-
-    Input:  encoder_hidden_states + 4 KVs per layer (sk, sv, ek, ev).
-    Cross-attn KVs from step 1 are reused.
-    Output: 4 KVs per layer (sk, sv updated; ek, ev pass-through)."""
+    """Export incremental-step decoder."""
     num_layers = model.config.decoder_layers
     num_heads = model.config.decoder_attention_heads
     d_model = model.config.d_model
@@ -396,7 +389,6 @@ def export_decoder_step(model, output_path: Path, enc_seq_len: int = 16):
 # ---------------------------------------------------------------------------
 
 def _or_default(value, default):
-    """Return value if not None, otherwise default.  Prevents null in config.json."""
     return value if value is not None else default
 
 
