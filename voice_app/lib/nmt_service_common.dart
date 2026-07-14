@@ -79,8 +79,39 @@ class NmtWorkerError {
   const NmtWorkerError(this.error);
 }
 
+/// A single message in a multi-turn chat conversation.
+class ChatMessage {
+  final String role; // 'user' or 'assistant'
+  final String content;
+
+  const ChatMessage({required this.role, required this.content});
+
+  Map<String, dynamic> toJson() => {'role': role, 'content': content};
+
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    return ChatMessage(
+      role: json['role'] as String,
+      content: json['content'] as String,
+    );
+  }
+}
+
+/// Request the worker to generate a chat response with conversation history.
+class NmtChatRequest {
+  final List<ChatMessage> messages;
+  final SendPort replyPort;
+  const NmtChatRequest({required this.messages, required this.replyPort});
+}
+
+/// Request the worker to toggle thinking mode dynamically.
+class NmtToggleThinkingRequest {
+  final bool enableThinking;
+  const NmtToggleThinkingRequest({required this.enableThinking});
+}
+
 /// A streaming partial translation token sent from the worker to the main isolate.
 class NmtStreamToken {
   final String text;
   const NmtStreamToken(this.text);
 }
+

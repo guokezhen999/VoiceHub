@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
@@ -263,8 +264,11 @@ void _workerEntry(_WorkerInit init) {
 
 void _workerEntryInternal(_WorkerInit init) {
   // Open the native library in this isolate.
-  // DynamicLibrary.open is reference-counted on macOS so this is cheap.
-  final lib = DynamicLibrary.open('libopus_mt.dylib');
+  // On iOS the static library is linked into the process image.
+  // On macOS DynamicLibrary.open is reference-counted so this is cheap.
+  final lib = Platform.isIOS
+      ? DynamicLibrary.process()
+      : DynamicLibrary.open('libopus_mt.dylib');
 
   // Look up C functions.
   final createTranslator = lib

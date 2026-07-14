@@ -46,6 +46,10 @@ int main(int argc, char* argv[]) {
     config.max_tokens   = 256;
     config.n_batch      = n_batch;
     config.temperature  = 0.0f;
+    if (source_text[0] == '[') {
+        config.chat_mode = true;
+        config.system_prompt = "You are a helpful assistant.";
+    }
 
     // ---- Init translator ----
     fprintf(stderr, "[1/3] Loading model and creating context...\n");

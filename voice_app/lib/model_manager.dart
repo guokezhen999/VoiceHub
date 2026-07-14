@@ -57,6 +57,9 @@ class ModelInfo {
   }
 
   String get casing {
+    // LLM models don't have a tokenizer casing concept.
+    if (type == 'llm') return 'mixed';
+
     String? storedCasing;
     final metaFile = File(p.join(path, 'metadata.json'));
     if (metaFile.existsSync()) {
@@ -459,6 +462,12 @@ class ModelInfo {
   }
 
   String? _findFileEndingWith(String suffix) {
+    // File-based LLM: path itself IS the .gguf file.
+    final pathFile = File(path);
+    if (pathFile.existsSync() && path.endsWith(suffix)) {
+      return path;
+    }
+    // Legacy: directory-based search.
     final dir = Directory(path);
     if (!dir.existsSync()) return null;
     try {
@@ -490,8 +499,18 @@ class ModelInfo {
     return false;
   }
 
-  // Calculate total size of the model directory
+  // Calculate total size of the model directory (or single file for file-based LLM).
   Future<int> getDirectorySize() async {
+    // File-based storage: return the single file's size directly.
+    final file = File(path);
+    if (file.existsSync()) {
+      try {
+        return await file.length();
+      } catch (_) {
+        return 0;
+      }
+    }
+    // Legacy: directory-based.
     final dir = Directory(path);
     if (!dir.existsSync()) return 0;
     int totalSize = 0;
@@ -505,8 +524,22 @@ class ModelInfo {
     return totalSize;
   }
 
-  // Get list of all files in the model directory with their sizes
+  // Get list of all files in the model directory (or the single file for file-based LLM) with their sizes.
   Future<List<Map<String, dynamic>>> getFilesWithSize() async {
+    // File-based storage: return a single entry for the .gguf file.
+    final file = File(path);
+    if (file.existsSync()) {
+      try {
+        final size = await file.length();
+        return [{
+          'name': p.basename(path),
+          'size': size,
+        }];
+      } catch (_) {
+        return [];
+      }
+    }
+    // Legacy: directory-based.
     final dir = Directory(path);
     if (!dir.existsSync()) return [];
     List<Map<String, dynamic>> files = [];
@@ -561,20 +594,47 @@ class ModelManager {
 
     try {
       if (type == 'llm') {
-        // LLM models are stored flat: models/llm/{model-name}/
+        // LLM models can be stored as:
+        //   1) Direct .gguf files: models/llm/{model-name}.gguf  (new, file-based)
+        //   2) Directories:        models/llm/{model-name}/       (legacy)
         // A single LLM model supports all language pairs.
         final modelEntities = typeRoot.listSync(recursive: false);
+        final Set<String> seenModelNames = {};
+
+        // 1) Scan for loose .gguf files (new file-based format).
+        for (var modelEntity in modelEntities) {
+          if (modelEntity is File && modelEntity.path.endsWith('.gguf')) {
+            final modelName = p.basenameWithoutExtension(modelEntity.path);
+            if (!seenModelNames.contains(modelName)) {
+              seenModelNames.add(modelName);
+              final modelInfo = ModelInfo(
+                name: modelName,
+                language: 'multi',
+                path: modelEntity.path, // points directly to the .gguf file
+                type: type,
+              );
+              if (modelInfo.isValid) {
+                models.add(modelInfo);
+              }
+            }
+          }
+        }
+
+        // 2) Scan for directories (legacy directory-based format).
         for (var modelEntity in modelEntities) {
           if (modelEntity is Directory) {
             final modelName = p.basename(modelEntity.path);
-            final modelInfo = ModelInfo(
-              name: modelName,
-              language: 'multi',  // supports all language pairs
-              path: modelEntity.path,
-              type: type,
-            );
-            if (modelInfo.isValid) {
-              models.add(modelInfo);
+            if (!seenModelNames.contains(modelName)) {
+              seenModelNames.add(modelName);
+              final modelInfo = ModelInfo(
+                name: modelName,
+                language: 'multi', // supports all language pairs
+                path: modelEntity.path,
+                type: type,
+              );
+              if (modelInfo.isValid) {
+                models.add(modelInfo);
+              }
             }
           }
         }
@@ -629,12 +689,19 @@ class ModelManager {
     final srcDir = Directory(srcPath);
     final files = srcDir.listSync(recursive: true);
 
-    // First find base path in the source directory
+    // First find base path in the source directory (ignoring macOS metadata/junk files)
     String? basePath;
     for (var entity in files) {
-      if (entity is File && (entity.path.endsWith('.onnx') || entity.path.endsWith('.gguf'))) {
-        basePath = p.dirname(entity.path);
-        break;
+      if (entity is File) {
+        final pathLower = entity.path.toLowerCase();
+        final nameLower = p.basename(entity.path).toLowerCase();
+        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+          continue;
+        }
+        if (entity.path.endsWith('.onnx') || entity.path.endsWith('.gguf')) {
+          basePath = p.dirname(entity.path);
+          break;
+        }
       }
     }
     basePath ??= srcPath;
@@ -646,6 +713,11 @@ class ModelManager {
     for (var entity in files) {
       if (entity is File) {
         final normalizedPath = p.normalize(entity.path);
+        final pathLower = normalizedPath.toLowerCase();
+        final nameLower = p.basename(normalizedPath).toLowerCase();
+        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+          continue;
+        }
         final normalizedBase = p.normalize(basePath);
 
         if (normalizedPath.startsWith(normalizedBase)) {
@@ -709,14 +781,22 @@ class ModelManager {
     Function(double)? onProgress,
   }) async {
     final typeRoot = await getTypeRoot(type);
-    final destPath = type == 'llm'
-        ? p.join(typeRoot.path, modelName)
+    final String destPath = type == 'llm'
+        ? p.join(typeRoot.path, '$modelName.gguf')
         : p.join(typeRoot.path, language, modelName);
-    final destDir = Directory(destPath);
-    if (destDir.existsSync()) {
-      await destDir.delete(recursive: true);
+    if (type == 'llm') {
+      // For LLM, destPath is a file: ensure parent directory exists.
+      final parentDir = Directory(p.dirname(destPath));
+      if (!parentDir.existsSync()) {
+        parentDir.createSync(recursive: true);
+      }
+    } else {
+      final destDir = Directory(destPath);
+      if (destDir.existsSync()) {
+        await destDir.delete(recursive: true);
+      }
+      await destDir.create(recursive: true);
     }
-    await destDir.create(recursive: true);
 
     final bytes = await File(archivePath).readAsBytes();
     final Archive archive;
@@ -736,12 +816,19 @@ class ModelManager {
       throw Exception('Unsupported archive format: ${p.extension(archivePath)}');
     }
 
-    // Find base path in archive
+    // Find base path in archive (ignoring macOS metadata/junk files)
     String? basePath;
     for (final file in archive) {
-      if (file.isFile && (file.name.endsWith('.onnx') || file.name.endsWith('.gguf'))) {
-        basePath = p.dirname(file.name);
-        break;
+      if (file.isFile) {
+        final pathLower = file.name.toLowerCase();
+        final nameLower = p.basename(file.name).toLowerCase();
+        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+          continue;
+        }
+        if (file.name.endsWith('.onnx') || file.name.endsWith('.gguf')) {
+          basePath = p.dirname(file.name);
+          break;
+        }
       }
     }
 
@@ -761,6 +848,11 @@ class ModelManager {
     for (final file in archive) {
       if (file.isFile) {
         final normalizedFilePath = p.normalize(file.name);
+        final pathLower = normalizedFilePath.toLowerCase();
+        final nameLower = p.basename(normalizedFilePath).toLowerCase();
+        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+          continue;
+        }
         String relativePath = '';
         if (basePath.isEmpty) {
           relativePath = normalizedFilePath;
@@ -782,41 +874,93 @@ class ModelManager {
 
     final importMap = _resolveImportFiles(relativePaths, type);
 
-    int completed = 0;
-    int total = importMap.length;
-
-    for (var entry in importMap.entries) {
-      final srcRelPath = entry.key;
-      final destRelPath = entry.value;
-      final file = archiveFiles[srcRelPath];
-
-      if (file != null) {
-        final outPath = p.join(destPath, destRelPath);
-        final data = file.content as List<int>;
-        final outFile = File(outPath);
-        await outFile.create(recursive: true);
-        await outFile.writeAsBytes(data);
+    if (type == 'llm') {
+      // For LLM, extract only the .gguf file directly to the dest file path.
+      final ggufEntry = importMap.entries.firstWhere(
+        (e) => e.value.endsWith('.gguf'),
+        orElse: () => const MapEntry('', ''),
+      );
+      if (ggufEntry.key.isNotEmpty) {
+        final archiveFile = archiveFiles[ggufEntry.key];
+        if (archiveFile != null) {
+          final data = archiveFile.content as List<int>;
+          final outFile = File(destPath);
+          await outFile.create(recursive: true);
+          await outFile.writeAsBytes(data);
+          if (onProgress != null) {
+            onProgress(1.0);
+          }
+        }
       }
+    } else {
+      int completed = 0;
+      int total = importMap.length;
 
-      completed++;
-      if (onProgress != null && total > 0) {
-        onProgress(completed / total);
+      for (var entry in importMap.entries) {
+        final srcRelPath = entry.key;
+        final destRelPath = entry.value;
+        final file = archiveFiles[srcRelPath];
+
+        if (file != null) {
+          final outPath = p.join(destPath, destRelPath);
+          final data = file.content as List<int>;
+          final outFile = File(outPath);
+          await outFile.create(recursive: true);
+          await outFile.writeAsBytes(data);
+        }
+
+        completed++;
+        if (onProgress != null && total > 0) {
+          onProgress(completed / total);
+        }
       }
     }
 
-    // Detect and write casing info to metadata.json during import
-    final tokensFile = File(p.join(destPath, 'tokens.txt'));
-    if (tokensFile.existsSync()) {
-      final casing = ModelInfo._detectTokensCasing(tokensFile);
-      final metaFile = File(p.join(destPath, 'metadata.json'));
-      Map<String, dynamic> metaData = {};
-      if (metaFile.existsSync()) {
-        try {
-          metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
-        } catch (_) {}
+    // Detect and write casing info to metadata.json during import (not for LLM).
+    if (type != 'llm') {
+      final tokensFile = File(p.join(destPath, 'tokens.txt'));
+      if (tokensFile.existsSync()) {
+        final casing = ModelInfo._detectTokensCasing(tokensFile);
+        final metaFile = File(p.join(destPath, 'metadata.json'));
+        Map<String, dynamic> metaData = {};
+        if (metaFile.existsSync()) {
+          try {
+            metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
+          } catch (_) {}
+        }
+        metaData['casing'] = casing;
+        metaFile.writeAsStringSync(jsonEncode(metaData));
       }
-      metaData['casing'] = casing;
-      metaFile.writeAsStringSync(jsonEncode(metaData));
+    }
+
+    notifyChange();
+  }
+
+  /// Import a single .gguf file as an LLM model.
+  /// Copies the source file to models/llm/{modelName}.gguf.
+  static Future<void> importLlmGgufFile({
+    required String sourceFilePath,
+    required String modelName,
+    Function(double)? onProgress,
+  }) async {
+    final typeRoot = await getTypeRoot('llm');
+    final destPath = p.join(typeRoot.path, '$modelName.gguf');
+
+    final srcFile = File(sourceFilePath);
+    if (!srcFile.existsSync()) {
+      throw Exception('Source .gguf file not found: $sourceFilePath');
+    }
+
+    final destFile = File(destPath);
+    if (destFile.existsSync()) {
+      await destFile.delete();
+    }
+    await destFile.create(recursive: true);
+    await srcFile.copy(destPath);
+
+    if (onProgress != null) {
+      onProgress(0.5);
+      onProgress(1.0);
     }
 
     notifyChange();
@@ -952,14 +1096,38 @@ class ModelManager {
   }
 
   static Future<void> deleteModel(ModelInfo model) async {
-    final dir = Directory(model.path);
-    if (dir.existsSync()) {
-      await dir.delete(recursive: true);
+    // File-based LLM: delete the single .gguf file.
+    final file = File(model.path);
+    if (file.existsSync()) {
+      await file.delete();
+    } else {
+      final dir = Directory(model.path);
+      if (dir.existsSync()) {
+        await dir.delete(recursive: true);
+      }
     }
     notifyChange();
   }
 
   static Future<void> renameModel(ModelInfo model, String newName) async {
+    // File-based LLM: rename the .gguf file, preserving its extension.
+    if (model.type == 'llm' && model.path.endsWith('.gguf')) {
+      final file = File(model.path);
+      if (!file.existsSync()) {
+        throw Exception('Model file does not exist.');
+      }
+      final parentPath = p.dirname(model.path);
+      final newPath = p.join(parentPath, '$newName.gguf');
+      final newFile = File(newPath);
+      if (newFile.existsSync()) {
+        throw Exception('A model named "$newName" already exists.');
+      }
+      await file.rename(newPath);
+      notifyChange();
+      return;
+    }
+
+    // Legacy: directory-based rename.
     final oldDir = Directory(model.path);
     if (!oldDir.existsSync()) {
       throw Exception('Model directory does not exist.');
@@ -980,8 +1148,19 @@ class ModelManager {
   static Future<void> ensureEspeakDataExtractor() async {
     final appSupport = await getApplicationSupportDirectory();
     final espeakDir = Directory(p.join(appSupport.path, 'espeak-ng-data'));
+    final sentinelFile = File(p.join(espeakDir.path, '.complete'));
+
+    if (espeakDir.existsSync() && sentinelFile.existsSync()) {
+      return; // Already extracted successfully
+    }
+
+    // Clean up partial or corrupted directory if it exists
     if (espeakDir.existsSync()) {
-      return; // Already extracted
+      try {
+        await espeakDir.delete(recursive: true);
+      } catch (e) {
+        print('Failed to delete incomplete espeak-ng-data directory: $e');
+      }
     }
 
     try {
@@ -1003,6 +1182,10 @@ class ModelManager {
           await outDir.create(recursive: true);
         }
       }
+
+      // Create sentinel file to indicate success
+      await sentinelFile.create(recursive: true);
+      await sentinelFile.writeAsString('extracted');
       print('espeak-ng-data extracted successfully to ${espeakDir.path}');
     } catch (e) {
       print('Failed to extract espeak-ng-data: $e');

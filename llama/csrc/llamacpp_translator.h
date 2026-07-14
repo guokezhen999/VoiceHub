@@ -24,6 +24,9 @@ public:
     // Load the model and create the inference context.
     bool Init(const LlamaConfig& config);
 
+    // Set thinking mode dynamically.
+    void SetEnableThinking(bool enable_thinking) { config_.enable_thinking = enable_thinking; }
+
     // Check whether the translator is initialized and ready.
     bool IsReady() const;
 
@@ -67,6 +70,15 @@ private:
     llama_sampler* sampler_ = nullptr;
     std::string error_;
     int32_t eos_token_ = -1;
+
+    // Scratch storage for BuildPrompt to keep string memory alive
+    // across llama_chat_apply_template calls.
+    std::vector<std::string> saved_roles_;
+    std::vector<std::string> saved_contents_;
+
+    // Cached token history from previous run to reuse KV cache
+    std::vector<int32_t> last_tokens_;
+    bool sys_prompt_cached_ = false;
 };
 
 #endif  // LLAMACPP_TRANSLATOR_H_

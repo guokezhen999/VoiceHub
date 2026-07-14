@@ -1,0 +1,40 @@
+PODS:
+  - audioplayers_darwin (0.0.1):
+    - Flutter
+  - Flutter (1.0.0)
+  - llamacpp_macos (1.0.0):
+    - Flutter
+  - opus_mt_macos (1.0.0):
+    - Flutter
+  - sherpa_onnx_ios (1.13.4):
+    - Flutter
+
+DEPENDENCIES:
+  - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/ios`)
+  - Flutter (from `Flutter`)
+  - llamacpp_macos (from `.symlinks/plugins/llamacpp_macos/ios`)
+  - opus_mt_macos (from `.symlinks/plugins/opus_mt_macos/ios`)
+  - sherpa_onnx_ios (from `.symlinks/plugins/sherpa_onnx_ios/ios`)
+
+EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: ".symlinks/plugins/audioplayers_darwin/ios"
+  Flutter:
+    :path: Flutter
+  llamacpp_macos:
+    :path: ".symlinks/plugins/llamacpp_macos/ios"
+  opus_mt_macos:
+    :path: ".symlinks/plugins/opus_mt_macos/ios"
+  sherpa_onnx_ios:
+    :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
+
+SPEC CHECKSUMS:
+  audioplayers_darwin: ccf9c770ee768abb07e26d90af093f7bab1c12ab
+  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  llamacpp_macos: 1aae72a37fe1365c9d5d240845d467f76f1ecc35
+  opus_mt_macos: 3588a27fe40efe8013951726372e37730a63d3a5
+  sherpa_onnx_ios: 32af18abd5c776d5f425d2abe0903471d26db221
+
+PODFILE CHECKSUM: 9ddeb055a755f8a0ce57fdfd3234a052e88a5020
+
+COCOAPODS: 1.17.0

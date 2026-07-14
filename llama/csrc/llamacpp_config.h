@@ -20,6 +20,11 @@ struct LlamaConfig {
 
     // Sampling
     float temperature  = 0.0f; // 0 = greedy decoding
+
+    // Chat mode (when true, uses system_prompt instead of translation prompt)
+    bool chat_mode = false;
+    bool enable_thinking = true; // when false in chat mode, appends </think> to prompt
+    std::string system_prompt; // custom system prompt for chat mode
 };
 
 #endif  // LLAMACPP_CONFIG_H_

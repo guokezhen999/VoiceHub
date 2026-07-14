@@ -29,7 +29,9 @@ typedef _CreateNative = Pointer<Void> Function(
     Int32 nCtx,
     Int32 nThreads,
     Int32 nGpuLayers,
-    Int32 maxTokens);
+    Int32 maxTokens,
+    Int32 chatMode,
+    Pointer<Utf8> systemPrompt);
 typedef _CreateDart = Pointer<Void> Function(
     Pointer<Utf8> modelPath,
     Pointer<Utf8> sourceLang,
@@ -37,7 +39,9 @@ typedef _CreateDart = Pointer<Void> Function(
     int nCtx,
     int nThreads,
     int nGpuLayers,
-    int maxTokens);
+    int maxTokens,
+    int chatMode,
+    Pointer<Utf8> systemPrompt);
 
 typedef _TranslateNative = Pointer<Utf8> Function(
     Pointer<Void> handle, Pointer<Utf8> sourceText);
@@ -60,6 +64,9 @@ typedef _IsReadyDart = int Function(Pointer<Void> handle);
 typedef _DestroyNative = Void Function(Pointer<Void> handle);
 typedef _DestroyDart = void Function(Pointer<Void> handle);
 
+typedef _SetEnableThinkingNative = Void Function(Pointer<Void> handle, Int32 enableThinking);
+typedef _SetEnableThinkingDart = void Function(Pointer<Void> handle, int enableThinking);
+
 typedef _FreeStringNative = Void Function(Pointer<Utf8> str);
 typedef _FreeStringDart = void Function(Pointer<Utf8> str);
 
@@ -81,6 +88,7 @@ class LlamaCppBridge {
   late _TranslateStreamingDart _translateStreaming;
   late _IsReadyDart _isReady;
   late _DestroyDart _destroyTranslator;
+  late _SetEnableThinkingDart _setEnableThinking;
   late _FreeStringDart _freeString;
   late _LastErrorDart _lastError;
 
@@ -132,6 +140,10 @@ class LlamaCppBridge {
         .lookup<NativeFunction<_DestroyNative>>('llamacpp_destroy_translator')
         .asFunction();
 
+    _setEnableThinking = lib
+        .lookup<NativeFunction<_SetEnableThinkingNative>>('llamacpp_set_enable_thinking')
+        .asFunction();
+
     _freeString = lib
         .lookup<NativeFunction<_FreeStringNative>>('llamacpp_free_string')
         .asFunction();
@@ -144,6 +156,8 @@ class LlamaCppBridge {
   /// Create a translator handle for the GGUF model at [modelPath].
   ///
   /// [sourceLang] and [targetLang] are used to construct the translation prompt.
+  /// Set [chatMode] = true for general chat (uses [systemPrompt] instead of
+  /// the hardcoded translation prompt).
   /// [nGpuLayers] = -1 offloads all layers to GPU (Metal on Apple Silicon).
   Pointer<Void> createTranslator(
     String modelPath, {
@@ -153,15 +167,20 @@ class LlamaCppBridge {
     int nThreads = 4,
     int nGpuLayers = -1,
     int maxTokens = 512,
+    bool chatMode = false,
+    String? systemPrompt,
   }) {
     final mp = modelPath.toNativeUtf8();
     final sl = sourceLang.toNativeUtf8();
     final tl = targetLang.toNativeUtf8();
+    final sp = (systemPrompt ?? '').toNativeUtf8();
     final handle = _createTranslator(
-        mp, sl, tl, nCtx, nThreads, nGpuLayers, maxTokens);
+        mp, sl, tl, nCtx, nThreads, nGpuLayers, maxTokens,
+        chatMode ? 1 : 0, sp);
     calloc.free(mp);
     calloc.free(sl);
     calloc.free(tl);
+    calloc.free(sp);
     return handle;
   }
 
@@ -233,6 +252,11 @@ class LlamaCppBridge {
   /// Destroy a translator and free its resources.
   void destroyTranslator(Pointer<Void> handle) {
     _destroyTranslator(handle);
+  }
+
+  /// Dynamically toggle thinking mode on or off.
+  void setEnableThinking(Pointer<Void> handle, bool enableThinking) {
+    _setEnableThinking(handle, enableThinking ? 1 : 0);
   }
 
   /// Get the last error message from the native library.

@@ -49,7 +49,9 @@ LlamaTranslatorHandle* llamacpp_create_translator(
     int32_t n_ctx,
     int32_t n_threads,
     int32_t n_gpu_layers,
-    int32_t max_tokens)
+    int32_t max_tokens,
+    int32_t chat_mode,
+    const char* system_prompt)
 {
     g_last_error.clear();
 
@@ -60,13 +62,16 @@ LlamaTranslatorHandle* llamacpp_create_translator(
     if (n_threads <= 0) n_threads = 4;
     if (max_tokens <= 0) max_tokens = 512;
 
-    h->config.model_path   = model_path ? model_path : "";
-    h->config.source_lang  = source_lang ? source_lang : "";
-    h->config.target_lang  = target_lang ? target_lang : "";
-    h->config.n_ctx        = n_ctx;
-    h->config.n_threads    = n_threads;
-    h->config.n_gpu_layers = n_gpu_layers;
-    h->config.max_tokens   = max_tokens;
+    h->config.model_path    = model_path ? model_path : "";
+    h->config.source_lang   = source_lang ? source_lang : "";
+    h->config.target_lang   = target_lang ? target_lang : "";
+    h->config.n_ctx         = n_ctx;
+    h->config.n_threads     = n_threads;
+    h->config.n_gpu_layers  = n_gpu_layers;
+    h->config.max_tokens    = max_tokens;
+    h->config.chat_mode     = (chat_mode != 0);
+    h->config.enable_thinking = (chat_mode != 2);
+    h->config.system_prompt = system_prompt ? system_prompt : "";
 
     if (!h->translator.Init(h->config)) {
         set_error(h->translator.LastError());
@@ -132,6 +137,13 @@ int32_t llamacpp_is_ready(const LlamaTranslatorHandle* handle) {
 
 void llamacpp_destroy_translator(LlamaTranslatorHandle* handle) {
     delete handle;
+}
+
+void llamacpp_set_enable_thinking(LlamaTranslatorHandle* handle, int32_t enable_thinking) {
+    if (handle) {
+        handle->config.enable_thinking = (enable_thinking != 0);
+        handle->translator.SetEnableThinking(enable_thinking != 0);
+    }
 }
 
 void llamacpp_free_string(const char* str) {

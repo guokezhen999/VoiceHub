@@ -98,6 +98,32 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
     }
   }
 
+  Future<void> _pickGgufFile() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.any,
+      );
+      if (result != null && result.files.single.path != null) {
+        final path = result.files.single.path!;
+        if (!path.toLowerCase().endsWith('.gguf')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please select a valid .gguf file.')),
+          );
+          return;
+        }
+        setState(() {
+          _selectedPath = path;
+          _isArchive = false;
+          _modelNameController.text = p.basenameWithoutExtension(path);
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to pick GGUF file: $e')),
+      );
+    }
+  }
+
   Future<void> _importModel() async {
     final modelName = _modelNameController.text.trim();
     final srcPath = _selectedPath;
@@ -128,7 +154,19 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
         : _selectedLanguage;
 
     try {
-      if (_isArchive) {
+      if (_currentType == 'llm' && !_isArchive) {
+        // Single .gguf file import for LLM.
+        await ModelManager.importLlmGgufFile(
+          sourceFilePath: srcPath,
+          modelName: modelName,
+          onProgress: (progress) {
+            setState(() {
+              _importProgress = progress;
+              _importStatus = 'Copying: ${(progress * 100).toStringAsFixed(0)}%';
+            });
+          },
+        );
+      } else if (_isArchive) {
         await ModelManager.importModelFromArchive(
           archivePath: srcPath,
           type: _currentType,
@@ -423,7 +461,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                                 ),
                               ],
                             ),
-                          ] else ...[
+                          ] else if (_currentType != 'llm') ...[
                             Row(
                               children: [
                                 Expanded(
@@ -463,9 +501,9 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                             children: [
                               Expanded(
                                 child: OutlinedButton.icon(
-                                  onPressed: _isImporting ? null : _pickDirectory,
-                                  icon: const Icon(Icons.folder_open),
-                                  label: const Text('Folder'),
+                                  onPressed: _isImporting ? null : (_currentType == 'llm' ? _pickGgufFile : _pickDirectory),
+                                  icon: Icon(_currentType == 'llm' ? Icons.insert_drive_file : Icons.folder_open),
+                                  label: Text(_currentType == 'llm' ? 'GGUF File' : 'Folder'),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -489,7 +527,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                               ),
                               child: Row(
                                 children: [
-                                  Icon(_isArchive ? Icons.archive : Icons.folder, color: Colors.blue),
+                                  Icon(_isArchive ? Icons.archive : (_currentType == 'llm' ? Icons.insert_drive_file : Icons.folder), color: Colors.blue),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
@@ -700,17 +738,20 @@ class _ModelTileState extends State<ModelTile> {
             leading: CircleAvatar(
               backgroundColor: Colors.blue[50],
               foregroundColor: Colors.blue,
-              child: Text(widget.model.languages.isNotEmpty
-                  ? (widget.model.languages.first.length >= 2
-                      ? widget.model.languages.first.substring(0, 2).toUpperCase()
-                      : widget.model.languages.first.toUpperCase())
-                  : '??'),
+              child: Text(widget.model.type == 'llm'
+                  ? 'LM'
+                  : widget.model.languages.isNotEmpty
+                      ? (widget.model.languages.first.length >= 2
+                          ? widget.model.languages.first.substring(0, 2).toUpperCase()
+                          : widget.model.languages.first.toUpperCase())
+                      : '??'),
             ),
             title: Text(widget.model.name, style: const TextStyle(fontWeight: FontWeight.w600)),
             subtitle: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Languages: ${widget.model.languages.join(", ")}', style: const TextStyle(fontSize: 12)),
+                if (widget.model.type != 'llm')
+                  Text('Languages: ${widget.model.languages.join(", ")}', style: const TextStyle(fontSize: 12)),
                 if (widget.model.type == 'asr' || widget.model.type == 'tts') ...[
                   const SizedBox(height: 4),
                   Container(
@@ -749,11 +790,12 @@ class _ModelTileState extends State<ModelTile> {
                   },
                   tooltip: 'View Files',
                 ),
-                IconButton(
-                  icon: const Icon(Icons.language, color: Colors.teal),
-                  onPressed: () => _manageLanguages(context),
-                  tooltip: 'Manage Languages',
-                ),
+                if (widget.model.type != 'llm')
+                  IconButton(
+                    icon: const Icon(Icons.language, color: Colors.teal),
+                    onPressed: () => _manageLanguages(context),
+                    tooltip: 'Manage Languages',
+                  ),
                 IconButton(
                   icon: const Icon(Icons.edit, color: Colors.blue),
                   onPressed: widget.onRename,

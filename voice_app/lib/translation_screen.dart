@@ -5,7 +5,6 @@ import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
 import 'llama_nmt_service.dart';
-import 'nmt_service_common.dart';
 
 class TranslationScreen extends StatefulWidget {
   final bool showPerfMetrics;
@@ -302,61 +301,90 @@ class _TranslationScreenState extends State<TranslationScreen> {
                   if (_loadingModels)
                     const Center(child: CircularProgressIndicator())
                   else ...[
-                    // Language pair pickers
-                    Row(
-                      children: [
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _selectedSourceLang,
-                            decoration: const InputDecoration(
-                              labelText: 'Source Language',
-                              border: OutlineInputBorder(),
-                              isDense: true,
+                    // Language pickers
+                    if (_isLlamaBackend)
+                      // LLM: only target language is needed
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedTargetLang,
+                              decoration: const InputDecoration(
+                                labelText: 'Target Language',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: supportedLanguages.map((lang) {
+                                return DropdownMenuItem(value: lang, child: Text(lang));
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _selectedTargetLang = val;
+                                    _deinitializeEngine();
+                                  });
+                                }
+                              },
                             ),
-                            items: supportedLanguages.map((lang) {
-                              return DropdownMenuItem(value: lang, child: Text(lang));
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() {
-                                  _selectedSourceLang = val;
-                                  _updateSelectedNmtModel();
-                                });
-                              }
-                            },
                           ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                          child: IconButton(
-                            icon: const Icon(Icons.swap_horiz_rounded, color: Colors.blue),
-                            onPressed: _swapLanguages,
-                            tooltip: 'Swap languages',
-                          ),
-                        ),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            value: _selectedTargetLang,
-                            decoration: const InputDecoration(
-                              labelText: 'Target Language',
-                              border: OutlineInputBorder(),
-                              isDense: true,
+                        ],
+                      )
+                    else
+                      // Marian NMT: source + target language pair
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedSourceLang,
+                              decoration: const InputDecoration(
+                                labelText: 'Source Language',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: supportedLanguages.map((lang) {
+                                return DropdownMenuItem(value: lang, child: Text(lang));
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _selectedSourceLang = val;
+                                    _updateSelectedNmtModel();
+                                  });
+                                }
+                              },
                             ),
-                            items: supportedLanguages.map((lang) {
-                              return DropdownMenuItem(value: lang, child: Text(lang));
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                setState(() {
-                                  _selectedTargetLang = val;
-                                  _updateSelectedNmtModel();
-                                });
-                              }
-                            },
                           ),
-                        ),
-                      ],
-                    ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                            child: IconButton(
+                              icon: const Icon(Icons.swap_horiz_rounded, color: Colors.blue),
+                              onPressed: _swapLanguages,
+                              tooltip: 'Swap languages',
+                            ),
+                          ),
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedTargetLang,
+                              decoration: const InputDecoration(
+                                labelText: 'Target Language',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              items: supportedLanguages.map((lang) {
+                                return DropdownMenuItem(value: lang, child: Text(lang));
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) {
+                                  setState(() {
+                                    _selectedTargetLang = val;
+                                    _updateSelectedNmtModel();
+                                  });
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     const SizedBox(height: 16),
 
                     if (_selectedNmtModel == null) ...[

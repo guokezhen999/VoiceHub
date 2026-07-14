@@ -59,3 +59,11 @@ model/
 # Audio/Wav test datasets (Large audio files)
 wav/
 *.wav
+
+# Large ML model files (ASR ONNX)
+*.onnx
+opus_mt/asr/
+
+# iOS Binary Frameworks
+*.xcframework/
+*.framework/

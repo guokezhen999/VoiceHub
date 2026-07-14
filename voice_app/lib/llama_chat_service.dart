@@ -13,18 +13,20 @@ import 'nmt_service_common.dart';
 // FFI callback type for streaming token callbacks from C++.
 typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 
-/// NMT service backed by llama.cpp + Metal GPU via FFI.
+/// LLM chat service backed by llama.cpp + Metal GPU via FFI.
 ///
-/// Translation runs in a dedicated **background isolate** so that the
-/// synchronous llama_decode loop never blocks the Flutter UI thread.
+/// Runs in a dedicated background isolate so the synchronous llama_decode
+/// loop never blocks the Flutter UI thread.
+///
+/// Supports multi-turn conversation with history management.
 ///
 /// Usage:
-///   await LlamaNmtService.init();                  // once at startup
-///   final svc = LlamaNmtService();
+///   await LlamaChatService.init();                  // once at startup
+///   final svc = LlamaChatService();
 ///   await svc.loadModel(modelInfo);
-///   final result = await svc.translate("你好世界");
+///   svc.chatStream("Hello!").listen((partial) { ... });
 ///   await svc.release();
-class LlamaNmtService {
+class LlamaChatService {
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -32,11 +34,13 @@ class LlamaNmtService {
   Completer<void>? _readyCompleter;
 
   ModelInfo? _currentModel;
-  String _sourceLang = 'Chinese';
-  String _targetLang = 'English';
+
+  // ---- Conversation history ----------------------------------------------
+  final List<ChatMessage> _history = [];
 
   bool get isLoaded => _worker != null;
   ModelInfo? get currentModel => _currentModel;
+  List<ChatMessage> get history => List.unmodifiable(_history);
 
   /// Initialize the native FFI bindings. Call once at app startup.
   static Future<void> init({String? libPath}) async {
@@ -44,23 +48,21 @@ class LlamaNmtService {
   }
 
   /// Load a GGUF model from [modelInfo] in a background isolate.
-  /// [sourceLang] and [targetLang] are the UI-selected languages used for prompts.
+  ///
+  /// [systemPrompt] is the custom system prompt for chat mode.
   Future<void> loadModel(
     ModelInfo modelInfo, {
-    String sourceLang = 'Chinese',
-    String targetLang = 'English',
+    String systemPrompt = 'You are a helpful, respectful and honest AI assistant.',
     int nCtx = 2048,
-    int maxLength = 512,
+    int maxTokens = 1024,
     int numThreads = 4,
     int nGpuLayers = -1,
+    bool enableThinking = true,
   }) async {
     if (_currentModel?.path == modelInfo.path && _worker != null) {
       return; // Already loaded.
     }
     await release();
-
-    _sourceLang = sourceLang;
-    _targetLang = targetLang;
 
     final modelPath = modelInfo.llmModelPath ?? modelInfo.path;
     _readyCompleter = Completer<void>();
@@ -68,14 +70,14 @@ class LlamaNmtService {
 
     _worker = await Isolate.spawn(
       _workerEntry,
-      NmtWorkerInit(
+      _ChatWorkerInit(
         sendPort: _workerReceivePort!.sendPort,
         modelPath: modelPath,
-        maxLength: maxLength,
+        systemPrompt: systemPrompt,
+        maxTokens: maxTokens,
         numThreads: numThreads,
         nGpuLayers: nGpuLayers,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
+        enableThinking: enableThinking,
       ),
     );
 
@@ -91,6 +93,7 @@ class LlamaNmtService {
       if (message is SendPort) {
         _workerSendPort = message;
         _currentModel = modelInfo;
+        _history.clear();
         _readyCompleter?.complete();
         _readyCompleter = null;
         completer.complete();
@@ -108,47 +111,28 @@ class LlamaNmtService {
     await completer.future;
   }
 
-  /// Translate [text] in the background isolate.
-  Future<TranslationResult> translate(String text) async {
+  /// Send a user message and get a streaming response.
+  ///
+  /// The conversation history (including this new message) is sent to the LLM.
+  /// Returns a [Stream] of partial response text. When the stream completes,
+  /// the final response is added to history.
+  Stream<String> chatStream(String userMessage, {bool enableThinking = true}) {
     if (_workerSendPort == null) {
-      throw Exception('Llama NMT model not loaded. Call loadModel() first.');
+      throw Exception('LLM chat model not loaded. Call loadModel() first.');
     }
 
-    final replyPort = ReceivePort();
-    _workerSendPort!.send(NmtTranslateRequest(
-      text: text,
-      replyPort: replyPort.sendPort,
-    ));
-
-    final result = await replyPort.first;
-    if (result is NmtWorkerError) {
-      throw Exception(result.error);
-    }
-    if (result is Map) {
-      return TranslationResult(
-        text: (result['text'] ?? '').toString(),
-        inputTokens: (result['input_tokens'] ?? 0) as int,
-        encoderMs: (result['encoder_ms'] ?? 0).toDouble(),
-        decoderMs: (result['decoder_ms'] ?? 0).toDouble(),
-        decoderTokens: (result['decoder_tokens'] ?? 0) as int,
-      );
-    }
-    throw Exception('Unexpected response from Llama worker: $result');
-  }
-
-  /// Translate [text] with per-token streaming.
-  Stream<String> translateStream(String text) {
-    if (_workerSendPort == null) {
-      throw Exception('Llama NMT model not loaded. Call loadModel() first.');
-    }
+    // Add the user message to history for this request.
+    final messages = List<ChatMessage>.from(_history)
+      ..add(ChatMessage(role: 'user', content: userMessage));
 
     final replyPort = ReceivePort();
     late StreamController<String> controller;
 
     controller = StreamController<String>(
       onListen: () {
-        _workerSendPort!.send(NmtTranslateStreamRequest(
-          text: text,
+        _workerSendPort!.send(NmtToggleThinkingRequest(enableThinking: enableThinking));
+        _workerSendPort!.send(NmtChatRequest(
+          messages: messages,
           replyPort: replyPort.sendPort,
         ));
 
@@ -159,7 +143,13 @@ class LlamaNmtService {
           } else if (message is NmtStreamToken) {
             controller.add(message.text);
           } else if (message is Map) {
+            // Final result: add to history.
             final responseText = (message['text'] ?? '').toString();
+            _history.add(ChatMessage(role: 'user', content: userMessage));
+            _history.add(ChatMessage(role: 'assistant', content: responseText));
+            if (_history.length > 10) {
+              _history.removeRange(0, _history.length - 10);
+            }
             _lastStreamResult = TranslationResult(
               text: responseText,
               inputTokens: (message['input_tokens'] ?? 0) as int,
@@ -178,7 +168,12 @@ class LlamaNmtService {
     return controller.stream;
   }
 
-  /// The timing result from the most recent [translateStream] call.
+  /// Clear the conversation history.
+  void clearHistory() {
+    _history.clear();
+  }
+
+  /// The timing result from the most recent [chatStream] call.
   TranslationResult? _lastStreamResult;
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
@@ -197,23 +192,42 @@ class LlamaNmtService {
     _currentModel = null;
     _readyCompleter = null;
   }
-
 }
 
 // ===========================================================================
 // Background-isolate worker
 // ===========================================================================
 
+/// Initialisation message sent to the worker isolate for chat mode.
+class _ChatWorkerInit {
+  final SendPort sendPort;
+  final String modelPath;
+  final String systemPrompt;
+  final int maxTokens;
+  final int numThreads;
+  final int nGpuLayers;
+  final bool enableThinking;
+  const _ChatWorkerInit({
+    required this.sendPort,
+    required this.modelPath,
+    required this.systemPrompt,
+    this.maxTokens = 1024,
+    this.numThreads = 4,
+    this.nGpuLayers = -1,
+    this.enableThinking = true,
+  });
+}
+
 /// Entry-point for the background isolate.
-void _workerEntry(NmtWorkerInit init) {
+void _workerEntry(_ChatWorkerInit init) {
   try {
     _workerEntryInternal(init);
   } catch (e, st) {
-    init.sendPort.send(NmtWorkerError('Llama worker isolate init failed: $e\n$st'));
+    init.sendPort.send(NmtWorkerError('LLM chat worker isolate init failed: $e\n$st'));
   }
 }
 
-void _workerEntryInternal(NmtWorkerInit init) {
+void _workerEntryInternal(_ChatWorkerInit init) {
   // Open the native library in this isolate.
   // On iOS the static library is linked into the process image.
   final lib = Platform.isIOS
@@ -223,17 +237,14 @@ void _workerEntryInternal(NmtWorkerInit init) {
   // Look up C functions.
   final createTranslator = lib
       .lookup<NativeFunction<Pointer<Void> Function(
-          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32, Int32, Int32, Int32,
+          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+          Int32, Int32, Int32, Int32,
           Int32, Pointer<Utf8>)>>(
           'llamacpp_create_translator')
       .asFunction<Pointer<Void> Function(
-          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int, int, int, int,
+          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>,
+          int, int, int, int,
           int, Pointer<Utf8>)>();
-
-  final translate = lib
-      .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>>(
-          'llamacpp_translate')
-      .asFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>();
 
   final translateStreaming = lib
       .lookup<NativeFunction<Pointer<Utf8> Function(
@@ -254,6 +265,11 @@ void _workerEntryInternal(NmtWorkerInit init) {
           'llamacpp_free_string')
       .asFunction<void Function(Pointer<Utf8>)>();
 
+  final setEnableThinking = lib
+      .lookup<NativeFunction<Void Function(Pointer<Void>, Int32)>>(
+          'llamacpp_set_enable_thinking')
+      .asFunction<void Function(Pointer<Void>, int)>();
+
   final lastError = lib
       .lookup<NativeFunction<Pointer<Utf8> Function()>>(
           'llamacpp_last_error')
@@ -264,23 +280,22 @@ void _workerEntryInternal(NmtWorkerInit init) {
           'llamacpp_is_ready')
       .asFunction<int Function(Pointer<Void>)>();
 
-  // Create the translator handle (translation mode: chat_mode=0).
+  // Create the translator handle in chat mode.
   final mp = init.modelPath.toNativeUtf8();
-  final sl = (init.sourceLang ?? 'Chinese').toNativeUtf8();
-  final tl = (init.targetLang ?? 'English').toNativeUtf8();
-  final emptySp = ''.toNativeUtf8();
+  final sp = init.systemPrompt.toNativeUtf8();
+  final emptyLang = ''.toNativeUtf8();
+  final chatModeVal = init.enableThinking ? 1 : 2;
   final handle = createTranslator(
-      mp, sl, tl, 2048, init.numThreads, init.nGpuLayers, init.maxLength,
-      0, emptySp);
+      mp, emptyLang, emptyLang, 2048, init.numThreads, init.nGpuLayers, init.maxTokens,
+      chatModeVal, sp);
   calloc.free(mp);
-  calloc.free(sl);
-  calloc.free(tl);
-  calloc.free(emptySp);
+  calloc.free(sp);
+  calloc.free(emptyLang);
 
   if (handle == nullptr || isReady(handle) == 0) {
     final errPtr = lastError();
     final err = errPtr == nullptr ? 'unknown error' : errPtr.toDartString();
-    init.sendPort.send(NmtWorkerError('Failed to create Llama translator: $err'));
+    init.sendPort.send(NmtWorkerError('Failed to create LLM chat translator: $err'));
     return;
   }
 
@@ -289,7 +304,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
   init.sendPort.send(kNmtReady);
   init.sendPort.send(requestPort.sendPort);
 
-  // Process translation requests.
+  // Process chat requests.
   requestPort.listen((message) {
     if (message == kNmtShutdown) {
       destroyTranslator(handle);
@@ -297,38 +312,17 @@ void _workerEntryInternal(NmtWorkerInit init) {
       return;
     }
 
-    if (message is NmtTranslateRequest) {
-      try {
-        final textPtr = message.text.toNativeUtf8();
-        final resultPtr = translate(handle, textPtr);
-        calloc.free(textPtr);
-
-        if (resultPtr == nullptr) {
-          final errPtr = lastError();
-          final err = errPtr == nullptr ? 'unknown error' : errPtr.toDartString();
-          message.replyPort.send(NmtWorkerError(err));
-        } else {
-          final resultStr = resultPtr.toDartString();
-          freeString(resultPtr);
-          try {
-            final jsonMap = jsonDecode(resultStr) as Map<String, dynamic>;
-            message.replyPort.send(jsonMap);
-          } catch (_) {
-            message.replyPort.send(<String, dynamic>{
-              'text': resultStr,
-              'encoder_ms': -1.0,
-              'decoder_ms': -1.0,
-              'decoder_tokens': -1,
-            });
-          }
-        }
-      } catch (e) {
-        message.replyPort.send(NmtWorkerError(e.toString()));
-      }
+    if (message is NmtToggleThinkingRequest) {
+      setEnableThinking(handle, message.enableThinking ? 1 : 0);
+      return;
     }
 
-    if (message is NmtTranslateStreamRequest) {
+    if (message is NmtChatRequest) {
       try {
+        // Serialize messages to JSON for the C++ layer.
+        final jsonList = message.messages.map((m) => m.toJson()).toList();
+        final jsonStr = jsonEncode(jsonList);
+
         final callback = NativeCallable<_WorkerTokenCallback>.isolateLocal(
           (Pointer<Utf8> tokenPtr, Pointer<Void> _) {
             final partialText = tokenPtr.toDartString();
@@ -336,7 +330,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
           },
         );
 
-        final textPtr = message.text.toNativeUtf8();
+        final textPtr = jsonStr.toNativeUtf8();
         final resultPtr = translateStreaming(
             handle, textPtr, callback.nativeFunction, nullptr);
         calloc.free(textPtr);

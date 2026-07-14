@@ -11,37 +11,53 @@ LlamaTokenizer::LlamaTokenizer(const llama_vocab* vocab)
 }
 
 std::vector<int32_t> LlamaTokenizer::Encode(const std::string& text, bool add_bos) const {
-    std::vector<llama_token> tokens;
-    tokens.reserve(text.size() / 4 + 8);  // rough estimate
-
-    int n = llama_tokenize(vocab_, text.c_str(), static_cast<int>(text.size()),
-                           tokens.data(), static_cast<int>(tokens.capacity()),
-                           add_bos, true);  // add_bos, allow_special
-    if (n < 0) {
-        // Buffer too small; retry with required size.
-        tokens.resize(-n);
-        n = llama_tokenize(vocab_, text.c_str(), static_cast<int>(text.size()),
-                           tokens.data(), static_cast<int>(tokens.size()),
-                           add_bos, true);
+    if (text.empty()) {
+        return {};
     }
-    if (n < 0) {
+    int n = llama_tokenize(vocab_, text.c_str(), static_cast<int>(text.size()),
+                           nullptr, 0,
+                           add_bos, true);
+    if (n >= 0) {
+        return {};
+    }
+    std::vector<llama_token> tokens(-n);
+    int ret = llama_tokenize(vocab_, text.c_str(), static_cast<int>(text.size()),
+                             tokens.data(), static_cast<int>(tokens.size()),
+                             add_bos, true);
+    if (ret < 0) {
         throw std::runtime_error("LlamaTokenizer: tokenization failed");
     }
-    tokens.resize(n);
-    return {tokens.begin(), tokens.end()};
+    tokens.resize(ret);
+    return std::vector<int32_t>(tokens.begin(), tokens.end());
 }
 
 std::string LlamaTokenizer::Decode(const std::vector<int32_t>& tokens) const {
-    std::string result;
-    result.reserve(tokens.size() * 4);
-    for (auto token : tokens) {
-        char buf[64];
-        int n = llama_detokenize(vocab_, &token, 1, buf, sizeof(buf), false, false);
-        if (n > 0) {
-            result.append(buf, n);
+    if (tokens.empty()) return "";
+
+    // Query size first (negative returned value represents size required)
+    int n = llama_detokenize(vocab_, tokens.data(), static_cast<int32_t>(tokens.size()), nullptr, 0, false, false);
+    if (n < 0) {
+        std::vector<char> buf(-n);
+        int actual = llama_detokenize(
+            vocab_, tokens.data(), static_cast<int32_t>(tokens.size()),
+            buf.data(), static_cast<int32_t>(buf.size()),
+            false, false
+        );
+        if (actual > 0) {
+            return std::string(buf.data(), actual);
+        }
+    } else if (n > 0) {
+        std::vector<char> buf(n);
+        int actual = llama_detokenize(
+            vocab_, tokens.data(), static_cast<int32_t>(tokens.size()),
+            buf.data(), static_cast<int32_t>(buf.size()),
+            false, false
+        );
+        if (actual > 0) {
+            return std::string(buf.data(), actual);
         }
     }
-    return result;
+    return "";
 }
 
 int32_t LlamaTokenizer::EosToken() const {

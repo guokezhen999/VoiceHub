@@ -26,6 +26,17 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static llama" FORCE)
 
 add_subdirectory("${LLAMA_CPP_DIR}" _llama_build)
 
+# iOS: Disable ARC for llama.cpp Metal Objective-C files.
+# llama.cpp's Metal backend uses manual reference counting (release/retain),
+# but the iOS toolchain enables ARC globally. This causes compilation errors
+# like "'release' is unavailable" and missing bridged casts.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+  if(TARGET ggml-metal)
+    target_compile_options(ggml-metal PRIVATE "-fno-objc-arc")
+    message(STATUS "Disabled ARC for ggml-metal target (iOS)")
+  endif()
+endif()
+
 # ---- nlohmann/json ----------------------------------------------------------
 
 find_path(NLOHMANN_JSON_INCLUDE_DIR
@@ -77,14 +88,20 @@ if(APPLE AND LLAMACPP_BUILD_SHARED)
 endif()
 
 # ---- Test executable ---------------------------------------------------------
+option(LLAMACPP_BUILD_TEST "Build inference test executable" ON)
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    set(LLAMACPP_BUILD_TEST OFF)
+endif()
 
-add_executable(test_llamacpp_inference test_llamacpp_inference.cpp)
-target_include_directories(test_llamacpp_inference
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
-    PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR}
-    PRIVATE "${LLAMA_CPP_DIR}/include"
-    PRIVATE "${LLAMA_CPP_DIR}/src")
-target_link_libraries(test_llamacpp_inference PRIVATE llama)
+if(LLAMACPP_BUILD_TEST)
+    add_executable(test_llamacpp_inference test_llamacpp_inference.cpp)
+    target_include_directories(test_llamacpp_inference
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}
+        PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR}
+        PRIVATE "${LLAMA_CPP_DIR}/include"
+        PRIVATE "${LLAMA_CPP_DIR}/src")
+    target_link_libraries(test_llamacpp_inference PRIVATE llamacpp_nmt)
+endif()
 
 # ---- Installation -----------------------------------------------------------
 
@@ -92,3 +109,19 @@ install(TARGETS llamacpp_nmt
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib)
 install(FILES ${LLAMACPP_HEADERS} DESTINATION include/llamacpp)
+
+# ---- Platform-specific notes ------------------------------------------------
+# To build for macOS:
+#   cmake -B build -DLLAMACPP_BUILD_SHARED=ON
+#   cmake --build build
+#
+# To build for iOS:
+#   cmake -B build-ios \
+#       -DCMAKE_SYSTEM_NAME=iOS \
+#       -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+#       -DCMAKE_OSX_ARCHITECTURES=arm64 \
+#       -DLLAMACPP_BUILD_SHARED=OFF \
+#       -DGGML_OPENMP=OFF \
+#       -DGGML_METAL=ON \
+#       -DGGML_METAL_EMBED_LIBRARY=ON
+#   cmake --build build-ios

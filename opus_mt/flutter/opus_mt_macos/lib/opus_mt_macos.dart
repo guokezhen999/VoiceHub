@@ -18,7 +18,7 @@ DynamicLibrary loadOpusMtLibrary() {
     return DynamicLibrary.open('libopus_mt.dylib');
   }
   if (Platform.isIOS) {
-    return DynamicLibrary.process();
+    return DynamicLibrary.open('opus_mt.framework/opus_mt');
   }
   if (Platform.isAndroid || Platform.isLinux) {
     return DynamicLibrary.open('libopus_mt.so');

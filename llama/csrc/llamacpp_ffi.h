@@ -20,13 +20,15 @@ typedef void (*llamacpp_token_callback)(const char* partial_text, void* user_dat
 // Create a translator from a GGUF model file.
 //
 // Parameters:
-//   model_path  - Path to the .gguf model file.
-//   source_lang - Source language name (e.g., "Chinese").
-//   target_lang - Target language name (e.g., "English").
-//   n_ctx       - Context window size (default: 2048).
-//   n_threads   - CPU threads (default: 4).
-//   n_gpu_layers - GPU offload layers (-1 = all layers).
-//   max_tokens  - Maximum output tokens (default: 512).
+//   model_path    - Path to the .gguf model file.
+//   source_lang   - Source language name (e.g., "Chinese").
+//   target_lang   - Target language name (e.g., "English").
+//   n_ctx         - Context window size (default: 2048).
+//   n_threads     - CPU threads (default: 4).
+//   n_gpu_layers  - GPU offload layers (-1 = all layers).
+//   max_tokens    - Maximum output tokens (default: 512).
+//   chat_mode     - 1 = general chat (uses system_prompt), 0 = translation.
+//   system_prompt - Custom system prompt for chat mode (can be NULL).
 //
 // Returns NULL on failure. Call llamacpp_last_error() for details.
 LlamaTranslatorHandle* llamacpp_create_translator(
@@ -36,7 +38,9 @@ LlamaTranslatorHandle* llamacpp_create_translator(
     int32_t n_ctx,
     int32_t n_threads,
     int32_t n_gpu_layers,
-    int32_t max_tokens);
+    int32_t max_tokens,
+    int32_t chat_mode,
+    const char* system_prompt);
 
 // Translate source text. Returns a JSON string with text + timing metrics.
 // The caller must free the result with llamacpp_free_string().
@@ -59,6 +63,9 @@ int32_t llamacpp_is_ready(const LlamaTranslatorHandle* handle);
 
 // Destroy a translator and free all resources.
 void llamacpp_destroy_translator(LlamaTranslatorHandle* handle);
+
+// Enable/disable thinking dynamically in chat mode.
+void llamacpp_set_enable_thinking(LlamaTranslatorHandle* handle, int32_t enable_thinking);
 
 // Free a string returned by llamacpp_translate().
 void llamacpp_free_string(const char* str);

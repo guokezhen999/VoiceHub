@@ -1,5 +1,5 @@
 # Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+platform :ios, '14.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -39,5 +39,26 @@ end
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
+  end
+
+  # Force-load all static library symbols so FFI plugins' C functions
+  # are visible to dlsym(RTLD_DEFAULT) / DynamicLibrary.process() at runtime.
+  installer.aggregate_targets.each do |target|
+    target.user_project.targets.each do |user_target|
+      if user_target.name == 'Runner'
+        user_target.build_configurations.each do |config|
+          ldflags = config.build_settings['OTHER_LDFLAGS']
+          # Handle both Array and String formats from Xcode
+          if ldflags.is_a?(Array)
+            ldflags << '-all_load' unless ldflags.include?('-all_load')
+          else
+            ldflags = ldflags.to_s
+            ldflags += ' -all_load' unless ldflags.include?('-all_load')
+            config.build_settings['OTHER_LDFLAGS'] = ldflags
+          end
+        end
+      end
+    end
+    target.user_project.save
   end
 end
