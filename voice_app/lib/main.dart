@@ -483,30 +483,32 @@ void showSettingsBottomSheet(BuildContext context) {
     builder: (context) => ValueListenableBuilder<bool>(
       valueListenable: MyHomePage.showPerfMetricsNotifier,
       builder: (context, showPerfMetrics, _) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Settings',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 12),
-                SwitchListTile(
-                  title: const Text('Show performance metrics'),
-                  subtitle: const Text(
-                    'Display encoder time and decoder tokens/second for MT translation',
-                    style: TextStyle(fontSize: 12),
+        return Material(
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Settings',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                  value: showPerfMetrics,
-                  onChanged: (val) {
-                    MyHomePage.showPerfMetricsNotifier.value = val;
-                  },
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Show performance metrics'),
+                    subtitle: const Text(
+                      'Display encoder time and decoder tokens/second for MT translation',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    value: showPerfMetrics,
+                    onChanged: (val) {
+                      MyHomePage.showPerfMetricsNotifier.value = val;
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
         );

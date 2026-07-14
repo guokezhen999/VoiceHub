@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -13,6 +15,7 @@ import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
 import 'llama_nmt_service.dart';
+import 'voice_engine_ffi_bridge.dart';
 import 'main.dart'; // To access showPerfMetricsNotifier if needed
 
 /// A single segment pairing an ASR sentence with its MT translation.
@@ -45,11 +48,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   // ASR Engine State
   bool _isAsrInitialized = false;
   bool _isAsrOfflineModel = false;
-  sherpa_onnx.OnlineRecognizer? _onlineRecognizer;
-  sherpa_onnx.OfflineRecognizer? _offlineRecognizer;
-  sher_onnx_StreamDisposeWrap? _streamWrap;
-  sherpa_onnx.VoiceActivityDetector? _vad;
-  sherpa_onnx.CircularBuffer? _circularBuffer;
+  Pointer<Void>? _asrHandle;
 
   // MT Engine State
   bool _isNmtInitialized = false;
@@ -92,13 +91,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   List<String> _sentences = [];
   String _currentAsrResult = "";
   int _sentenceIndex = 0;
-
-  // Pre-speech buffer: cache audio before VAD first triggers,
-  // then replay into the recognizer to avoid losing speech onset.
-  bool _vadEverDetected = false;
-  final List<Float32List> _preSpeechBuffer = [];
-  static const int _maxPreSpeechSamples = 8000; // 0.5 seconds
-  int _preSpeechBufferSize = 0;
 
   // Paired ASR+MT segments for unified display
   final List<_CascadeSegment> _cascadeSegments = [];
@@ -252,16 +244,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   }
 
   void _deinitializeAsr() {
-    _streamWrap?.free();
-    _streamWrap = null;
-    _onlineRecognizer?.free();
-    _onlineRecognizer = null;
-    _offlineRecognizer?.free();
-    _offlineRecognizer = null;
-    _vad?.free();
-    _vad = null;
-    _circularBuffer?.free();
-    _circularBuffer = null;
+    if (_asrHandle != null) {
+      VoiceEngineBridge.instance.destroy(_asrHandle!);
+      _asrHandle = null;
+    }
     _isAsrInitialized = false;
   }
 
@@ -282,6 +268,11 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   Future<void> _initializeAllEngines() async {
     _deinitializeAll();
 
+    // sherpa_onnx native bindings are still required by TTS (OfflineTts), so
+    // initialize them up front — ASR now goes through voice_engine, but TTS
+    // does not.
+    sherpa_onnx.initBindings();
+
     // 1. Initialize ASR
     if (_selectedAsrModel == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -291,72 +282,39 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
     setState(() => _isInitializingASR = true);
     try {
-      sherpa_onnx.initBindings();
-      final encoder = _selectedAsrModel!.asrEncoderPath!;
-      final decoder = _selectedAsrModel!.asrDecoderPath!;
-      final joiner = _selectedAsrModel!.asrJoinerPath!;
-      final tokens = _selectedAsrModel!.tokensPath!;
+      await VoiceEngineBridge.init();
 
       _isAsrOfflineModel = !_selectedAsrModel!.isStreamingASR;
 
       final sileroModelPath = await ModelManager.ensureSileroVad();
-      final vadConfig = sherpa_onnx.VadModelConfig(
-        sileroVad: sherpa_onnx.SileroVadModelConfig(
-          model: sileroModelPath,
-          threshold: 0.5,
-          minSilenceDuration: 0.5,
-          minSpeechDuration: 0.25,
-          windowSize: 512,
-          maxSpeechDuration: 20.0,
-        ),
-        sampleRate: 16000,
-        numThreads: 1,
-        debug: false,
-      );
-      _vad = sherpa_onnx.VoiceActivityDetector(config: vadConfig, bufferSizeInSeconds: 60);
-      _circularBuffer = sherpa_onnx.CircularBuffer(capacity: 30 * 16000);
+      final config = {
+        'mode': _isAsrOfflineModel ? 'offline' : 'online',
+        'encoder': _selectedAsrModel!.asrEncoderPath!,
+        'decoder': _selectedAsrModel!.asrDecoderPath!,
+        'joiner': _selectedAsrModel!.asrJoinerPath!,
+        'tokens': _selectedAsrModel!.tokensPath!,
+        'model_type': 'zipformer2',
+        'decoding_method': 'greedy_search',
+        'num_threads': 1,
+        'vad': {
+          'model': sileroModelPath,
+          'threshold': 0.5,
+          'min_silence_duration': 0.5,
+          'min_speech_duration': 0.25,
+          'window_size': 512,
+          'max_speech_duration': 20.0,
+          'sample_rate': 16000,
+          'num_threads': 1,
+          'buffer_size_seconds': 60.0,
+        },
+        'endpoint': {
+          'enable': true,
+          'rule1_min_trailing_silence': 2.4,
+          'rule2_min_trailing_silence': 1.0,
+        },
+      };
+      _asrHandle = VoiceEngineBridge.instance.create(jsonEncode(config));
 
-      if (_isAsrOfflineModel) {
-        final modelConfig = sherpa_onnx.OfflineModelConfig(
-          transducer: sherpa_onnx.OfflineTransducerModelConfig(
-            encoder: encoder,
-            decoder: decoder,
-            joiner: joiner,
-          ),
-          tokens: tokens,
-          modelType: 'zipformer2',
-        );
-
-        final config = sherpa_onnx.OfflineRecognizerConfig(
-          model: modelConfig,
-          decodingMethod: 'greedy_search',
-        );
-
-        _offlineRecognizer = sherpa_onnx.OfflineRecognizer(config);
-      } else {
-        final modelConfig = sherpa_onnx.OnlineModelConfig(
-          transducer: sherpa_onnx.OnlineTransducerModelConfig(
-            encoder: encoder,
-            decoder: decoder,
-            joiner: joiner,
-          ),
-          tokens: tokens,
-          modelType: 'zipformer2',
-        );
-
-        final config = sherpa_onnx.OnlineRecognizerConfig(
-          model: modelConfig,
-          ruleFsts: '',
-          enableEndpoint: true,
-          rule1MinTrailingSilence: 2.4,
-          rule2MinTrailingSilence: 1.0,
-          decodingMethod: 'greedy_search',
-        );
-
-        _onlineRecognizer = sherpa_onnx.OnlineRecognizer(config);
-        final stream = _onlineRecognizer!.createStream();
-        _streamWrap = sher_onnx_StreamDisposeWrap(stream);
-      }
       setState(() {
         _isAsrInitialized = true;
         _isInitializingASR = false;
@@ -526,15 +484,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       if (await _audioRecorder.hasPermission()) {
         await _audioPlayer.stop();
 
-        _vad!.reset();
-        _circularBuffer!.reset();
-        _vadEverDetected = false;
-        _preSpeechBuffer.clear();
-        _preSpeechBufferSize = 0;
-
-        if (!_isAsrOfflineModel && _onlineRecognizer != null) {
-          _onlineRecognizer!.reset(_streamWrap!.stream);
-        }
+        VoiceEngineBridge.instance.reset(_asrHandle!);
 
         setState(() {
           _asrText = _sentences.join(" ");
@@ -569,160 +519,12 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
         final audioStream = await _audioRecorder.startStream(config);
 
         _audioStreamSub = audioStream.listen((data) {
-          if (_vad == null || _circularBuffer == null) return;
+          if (_asrHandle == null) return;
 
-          final samplesFloat32 = convertBytesToFloat32(Uint8List.fromList(data));
-          _circularBuffer!.push(samplesFloat32);
-
-          const windowSize = 512;
-
-          if (_isAsrOfflineModel) {
-            // Offline Recognizer processing via VAD segments
-            if (_offlineRecognizer == null) return;
-            while (_circularBuffer!.size >= windowSize) {
-              final samples = _circularBuffer!.get(startIndex: _circularBuffer!.head, n: windowSize);
-              _circularBuffer!.pop(windowSize);
-              _vad!.acceptWaveform(samples);
-            }
-
-            if (_vad!.isDetected()) {
-              if (_currentAsrResult != "Speaking...") {
-                setState(() {
-                  _currentAsrResult = "Speaking...";
-                });
-              }
-            } else {
-              if (_currentAsrResult == "Speaking...") {
-                setState(() {
-                  _currentAsrResult = "";
-                });
-              }
-            }
-
-            while (!_vad!.isEmpty()) {
-              final segment = _vad!.front();
-              _vad!.pop();
-
-              final stream = _offlineRecognizer!.createStream();
-              stream.acceptWaveform(samples: segment.samples, sampleRate: 16000);
-              _offlineRecognizer!.decode(stream);
-              final text = _offlineRecognizer!.getResult(stream).text;
-              stream.free();
-
-              if (text.isNotEmpty) {
-                String finalizedText = text;
-                final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                while (finalizedText.isNotEmpty) {
-                  final firstChar = finalizedText[0];
-                  if (leadingPuncs.contains(firstChar)) {
-                    finalizedText = finalizedText.substring(1);
-                  } else {
-                    break;
-                  }
-                }
-                finalizedText = _formatTextWithCasing(finalizedText);
-                if (finalizedText.isNotEmpty) {
-                  final segIdx = _cascadeSegments.length;
-                  setState(() {
-                    _sentences.add(finalizedText);
-                    _sentenceIndex += 1;
-                    _currentAsrResult = "";
-                    _asrText = _sentences.join(" ");
-                    _cascadeSegments.add(_CascadeSegment(asr: finalizedText));
-                  });
-                  _addSentenceToPipeline(finalizedText, segIdx);
-                }
-              }
-            }
-          } else {
-            // Online Recognizer processing
-            if (_recognizerStream == null || _onlineRecognizer == null) return;
-
-            while (_circularBuffer!.size >= windowSize) {
-              final samples = _circularBuffer!.get(startIndex: _circularBuffer!.head, n: windowSize);
-              _circularBuffer!.pop(windowSize);
-              _vad!.acceptWaveform(samples);
-
-              if (_vad!.isDetected()) {
-                if (!_vadEverDetected) {
-                  // First time VAD triggers: replay buffered pre-speech audio
-                  // into the recognizer to avoid losing the speech onset.
-                  _vadEverDetected = true;
-                  for (final buffered in _preSpeechBuffer) {
-                    _recognizerStream!.acceptWaveform(samples: buffered, sampleRate: 16000);
-                  }
-                  _preSpeechBuffer.clear();
-                  _preSpeechBufferSize = 0;
-                }
-                _recognizerStream!.acceptWaveform(samples: samples, sampleRate: 16000);
-              } else if (!_vadEverDetected) {
-                // VAD hasn't triggered yet; buffer audio for later replay (sliding window).
-                _preSpeechBuffer.add(samples);
-                _preSpeechBufferSize += samples.length;
-                while (_preSpeechBufferSize > _maxPreSpeechSamples) {
-                  final removed = _preSpeechBuffer.removeAt(0);
-                  _preSpeechBufferSize -= removed.length;
-                }
-              }
-
-              // Check if a segment has finished immediately inside the loop to avoid losing subsequent audio
-              while (!_vad!.isEmpty()) {
-                _vad!.pop();
-
-                while (_onlineRecognizer!.isReady(_recognizerStream!)) {
-                  _onlineRecognizer!.decode(_recognizerStream!);
-                }
-
-                final finalT = _onlineRecognizer!.getResult(_recognizerStream!).text;
-                _streamWrap?.free();
-                final stream = _onlineRecognizer!.createStream();
-                _streamWrap = sher_onnx_StreamDisposeWrap(stream);
-                // Reset VAD detection state so the next speech onset
-                // also gets its own pre-speech buffer replay.
-                _vadEverDetected = false;
-                _preSpeechBuffer.clear();
-                _preSpeechBufferSize = 0;
-
-                if (finalT.isNotEmpty) {
-                  String finalizedText = finalT;
-                  final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                  while (finalizedText.isNotEmpty) {
-                    final firstChar = finalizedText[0];
-                    if (leadingPuncs.contains(firstChar)) {
-                      finalizedText = finalizedText.substring(1);
-                    } else {
-                      break;
-                    }
-                  }
-                  finalizedText = _formatTextWithCasing(finalizedText);
-                  if (finalizedText.isNotEmpty) {
-                    final segIdx = _cascadeSegments.length;
-                    _sentences.add(finalizedText);
-                    _sentenceIndex += 1;
-                    _cascadeSegments.add(_CascadeSegment(asr: finalizedText));
-                    _addSentenceToPipeline(finalizedText, segIdx);
-                  }
-                }
-                _currentAsrResult = "";
-                setState(() {
-                  _asrText = _sentences.join(" ");
-                });
-              }
-            }
-
-            while (_onlineRecognizer!.isReady(_recognizerStream!)) {
-              _onlineRecognizer!.decode(_recognizerStream!);
-            }
-
-            final text = _onlineRecognizer!.getResult(_recognizerStream!).text;
-
-            if (text.isNotEmpty) {
-              setState(() {
-                _currentAsrResult = _formatTextWithCasing(text);
-                _asrText = (_sentences.join(" ") + " " + _currentAsrResult).trim();
-              });
-            }
-          }
+          final samples = convertBytesToFloat32(Uint8List.fromList(data));
+          VoiceEngineBridge.instance.acceptWaveform(_asrHandle!, samples);
+          final r = VoiceEngineBridge.instance.poll(_asrHandle!);
+          _onAsrPoll(r);
         });
       }
     } catch (e) {
@@ -730,7 +532,42 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
   }
 
-  sherpa_onnx.OnlineStream? get _recognizerStream => _streamWrap?.stream;
+  static const List<String> _leadingPuncs = [
+    '，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';',
+  ];
+
+  static String _stripLeadingPuncs(String text) {
+    while (text.isNotEmpty && _leadingPuncs.contains(text[0])) {
+      text = text.substring(1);
+    }
+    return text;
+  }
+
+  /// Process a poll result from the voice_engine pipeline: append finalized
+  /// sentences to the cascade pipeline and update the live ASR display.
+  void _onAsrPoll(VoiceEnginePollResult r) {
+    for (final f in r.finalized) {
+      var text = _stripLeadingPuncs(f);
+      text = _formatTextWithCasing(text);
+      if (text.isNotEmpty) {
+        final segIdx = _cascadeSegments.length;
+        _sentences.add(text);
+        _sentenceIndex += 1;
+        _cascadeSegments.add(_CascadeSegment(asr: text));
+        _addSentenceToPipeline(text, segIdx);
+      }
+    }
+
+    setState(() {
+      final partialText = (r.speaking && r.partial.isNotEmpty)
+          ? _formatTextWithCasing(r.partial)
+          : "";
+      _currentAsrResult = r.speaking
+          ? (r.partial.isEmpty ? "Speaking..." : partialText)
+          : "";
+      _asrText = (_sentences.join(" ") + " " + partialText).trim();
+    });
+  }
 
   Future<void> _stopRecording() async {
     try {
@@ -738,26 +575,19 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       await _audioStreamSub?.cancel();
       _audioStreamSub = null;
 
-      if (!_isAsrOfflineModel && _onlineRecognizer != null && _recognizerStream != null) {
-        final finalT = _onlineRecognizer!.getResult(_recognizerStream!).text;
-        _onlineRecognizer!.reset(_recognizerStream!);
-        if (finalT.isNotEmpty) {
-          String finalizedText = finalT;
-          final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-          while (finalizedText.isNotEmpty) {
-            final firstChar = finalizedText[0];
-            if (leadingPuncs.contains(firstChar)) {
-              finalizedText = finalizedText.substring(1);
-            } else {
-              break;
-            }
-          }
-          finalizedText = _formatTextWithCasing(finalizedText);
-          if (finalizedText.isNotEmpty) {
+      // Flush the VAD tail and drain any remaining finalized segments.
+      if (_asrHandle != null) {
+        VoiceEngineBridge.instance.flush(_asrHandle!);
+        final r = VoiceEngineBridge.instance.poll(_asrHandle!);
+        for (final f in r.finalized) {
+          var text = _stripLeadingPuncs(f);
+          text = _formatTextWithCasing(text);
+          if (text.isNotEmpty) {
             final segIdx = _cascadeSegments.length;
-            _sentences.add(finalizedText);
-            _cascadeSegments.add(_CascadeSegment(asr: finalizedText));
-            _addSentenceToPipeline(finalizedText, segIdx);
+            _sentences.add(text);
+            _sentenceIndex += 1;
+            _cascadeSegments.add(_CascadeSegment(asr: text));
+            _addSentenceToPipeline(text, segIdx);
           }
         }
       }
@@ -1485,18 +1315,12 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     List<ModelInfo> filteredTtss,
   ) {
     final targetPair = '$_selectedSourceLang-$_selectedTargetLang';
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
+    return Material(
+      color: Colors.white,
+      elevation: 3,
+      shadowColor: Colors.black.withOpacity(0.04),
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
@@ -2188,15 +2012,3 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     );
   }
 }
-
-// Helper wrapper to dispose streams cleanly
-class sher_onnx_StreamDisposeWrap {
-  final sherpa_onnx.OnlineStream stream;
-  sher_onnx_StreamDisposeWrap(this.stream);
-  void free() {
-    try {
-      stream.free();
-    } catch (_) {}
-  }
-}
-
