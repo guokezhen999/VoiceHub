@@ -93,6 +93,13 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   String _currentAsrResult = "";
   int _sentenceIndex = 0;
 
+  // Pre-speech buffer: cache audio before VAD first triggers,
+  // then replay into the recognizer to avoid losing speech onset.
+  bool _vadEverDetected = false;
+  final List<Float32List> _preSpeechBuffer = [];
+  static const int _maxPreSpeechSamples = 8000; // 0.5 seconds
+  int _preSpeechBufferSize = 0;
+
   // Paired ASR+MT segments for unified display
   final List<_CascadeSegment> _cascadeSegments = [];
   int _currentTranslatingIndex = -1;
@@ -521,17 +528,18 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
         _vad!.reset();
         _circularBuffer!.reset();
+        _vadEverDetected = false;
+        _preSpeechBuffer.clear();
+        _preSpeechBufferSize = 0;
 
         if (!_isAsrOfflineModel && _onlineRecognizer != null) {
           _onlineRecognizer!.reset(_streamWrap!.stream);
         }
 
         setState(() {
-          _asrText = "";
+          _asrText = _sentences.join(" ");
           _mtText = "";
-          _sentences = [];
           _currentAsrResult = "";
-          _sentenceIndex = 0;
           _currentStep = 1; // Step 1: ASR
           _pipelineStatus = "Listening...";
 
@@ -541,8 +549,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           _isProcessingTtsQueue = false;
           _isTtsPlaying = false;
           _playCompleter = null;
-          _cascadeSegments.clear();
-          _currentTranslatingIndex = -1;
 
           // Reset performance metrics
           _mtInputTokens = null;
@@ -638,7 +644,69 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
               _vad!.acceptWaveform(samples);
 
               if (_vad!.isDetected()) {
+                if (!_vadEverDetected) {
+                  // First time VAD triggers: replay buffered pre-speech audio
+                  // into the recognizer to avoid losing the speech onset.
+                  _vadEverDetected = true;
+                  for (final buffered in _preSpeechBuffer) {
+                    _recognizerStream!.acceptWaveform(samples: buffered, sampleRate: 16000);
+                  }
+                  _preSpeechBuffer.clear();
+                  _preSpeechBufferSize = 0;
+                }
                 _recognizerStream!.acceptWaveform(samples: samples, sampleRate: 16000);
+              } else if (!_vadEverDetected) {
+                // VAD hasn't triggered yet; buffer audio for later replay (sliding window).
+                _preSpeechBuffer.add(samples);
+                _preSpeechBufferSize += samples.length;
+                while (_preSpeechBufferSize > _maxPreSpeechSamples) {
+                  final removed = _preSpeechBuffer.removeAt(0);
+                  _preSpeechBufferSize -= removed.length;
+                }
+              }
+
+              // Check if a segment has finished immediately inside the loop to avoid losing subsequent audio
+              while (!_vad!.isEmpty()) {
+                _vad!.pop();
+
+                while (_onlineRecognizer!.isReady(_recognizerStream!)) {
+                  _onlineRecognizer!.decode(_recognizerStream!);
+                }
+
+                final finalT = _onlineRecognizer!.getResult(_recognizerStream!).text;
+                _streamWrap?.free();
+                final stream = _onlineRecognizer!.createStream();
+                _streamWrap = sher_onnx_StreamDisposeWrap(stream);
+                // Reset VAD detection state so the next speech onset
+                // also gets its own pre-speech buffer replay.
+                _vadEverDetected = false;
+                _preSpeechBuffer.clear();
+                _preSpeechBufferSize = 0;
+
+                if (finalT.isNotEmpty) {
+                  String finalizedText = finalT;
+                  final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
+                  while (finalizedText.isNotEmpty) {
+                    final firstChar = finalizedText[0];
+                    if (leadingPuncs.contains(firstChar)) {
+                      finalizedText = finalizedText.substring(1);
+                    } else {
+                      break;
+                    }
+                  }
+                  finalizedText = _formatTextWithCasing(finalizedText);
+                  if (finalizedText.isNotEmpty) {
+                    final segIdx = _cascadeSegments.length;
+                    _sentences.add(finalizedText);
+                    _sentenceIndex += 1;
+                    _cascadeSegments.add(_CascadeSegment(asr: finalizedText));
+                    _addSentenceToPipeline(finalizedText, segIdx);
+                  }
+                }
+                _currentAsrResult = "";
+                setState(() {
+                  _asrText = _sentences.join(" ");
+                });
               }
             }
 
@@ -652,38 +720,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
               setState(() {
                 _currentAsrResult = _formatTextWithCasing(text);
                 _asrText = (_sentences.join(" ") + " " + _currentAsrResult).trim();
-              });
-            }
-
-            while (!_vad!.isEmpty()) {
-              _vad!.pop();
-
-              final finalT = _onlineRecognizer!.getResult(_recognizerStream!).text;
-              _onlineRecognizer!.reset(_recognizerStream!);
-
-              if (finalT.isNotEmpty) {
-                String finalizedText = finalT;
-                final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                while (finalizedText.isNotEmpty) {
-                  final firstChar = finalizedText[0];
-                  if (leadingPuncs.contains(firstChar)) {
-                    finalizedText = finalizedText.substring(1);
-                  } else {
-                    break;
-                  }
-                }
-                finalizedText = _formatTextWithCasing(finalizedText);
-                if (finalizedText.isNotEmpty) {
-                  final segIdx = _cascadeSegments.length;
-                  _sentences.add(finalizedText);
-                  _sentenceIndex += 1;
-                  _cascadeSegments.add(_CascadeSegment(asr: finalizedText));
-                  _addSentenceToPipeline(finalizedText, segIdx);
-                }
-              }
-              _currentAsrResult = "";
-              setState(() {
-                _asrText = _sentences.join(" ");
               });
             }
           }
@@ -1067,6 +1103,33 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     final dir = await getTemporaryDirectory();
     final name = 'tts-cascade-${DateTime.now().millisecondsSinceEpoch}$suffix.wav';
     return p.join(dir.path, name);
+  }
+
+  void _clearConversation() {
+    _audioPlayer.stop();
+    setState(() {
+      _sentences = [];
+      _currentAsrResult = "";
+      _sentenceIndex = 0;
+      _asrText = "";
+      _mtText = "";
+      _cascadeSegments.clear();
+      _currentTranslatingIndex = -1;
+      _sentenceQueue.clear();
+      _isProcessingQueue = false;
+      _ttsQueue.clear();
+      _isProcessingTtsQueue = false;
+      _isTtsPlaying = false;
+      _playCompleter?.complete();
+      _playCompleter = null;
+      _mtInputTokens = null;
+      _mtEncoderMs = null;
+      _mtDecoderTokens = null;
+      _mtDecoderTokensPerSec = null;
+      _ttsElapsedSec = null;
+      _ttsAudioDurationSec = null;
+      _ttsRtf = null;
+    });
   }
 
   String _formatTextWithCasing(String text) {
@@ -1861,12 +1924,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 'Translation Output',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
               ),
-              if (_mtText.isNotEmpty && _isTtsInitialized)
-                IconButton(
-                  onPressed: () => _runTts(_mtText),
-                  icon: const Icon(Icons.replay_circle_filled_rounded, color: Color(0xFF1E3C72)),
-                  tooltip: 'Replay Speech Synthesis',
-                ),
             ],
           ),
           const SizedBox(height: 12),
@@ -1893,6 +1950,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                     ),
                   ),
           ),
+          const SizedBox(height: 12),
 
           // Performance Metrics
           if (showPerfMetrics && (_mtEncoderMs != null || _ttsElapsedSec != null)) ...[
@@ -1965,45 +2023,62 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Central Microphone Button + Stop TTS Button
+          // Symmetrically balanced Row containing Clear, Stop TTS, Microphone, Replay TTS, and Spacers
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
-              // Stop TTS Button (visible when TTS is active)
-              AnimatedOpacity(
-                opacity: (_isTtsPlaying || _isProcessingTtsQueue) ? 1.0 : 0.0,
-                duration: const Duration(milliseconds: 200),
-                child: IgnorePointer(
-                  ignoring: !(_isTtsPlaying || _isProcessingTtsQueue),
-                  child: GestureDetector(
-                    onTap: _stopTts,
-                    child: Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.orange.shade600, Colors.orange.shade400],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.orange.shade300.withOpacity(0.4),
-                            blurRadius: 12,
-                            spreadRadius: 1,
-                            offset: const Offset(0, 4),
+              // 1. Clear Button
+              SizedBox(
+                width: 52,
+                height: 52,
+                child: IconButton(
+                  onPressed: (_cascadeSegments.isEmpty && _currentAsrResult.isEmpty)
+                      ? null
+                      : _clearConversation,
+                  icon: const Icon(Icons.delete_outline, size: 26),
+                  color: Colors.red.shade400,
+                  disabledColor: Colors.grey.shade300,
+                  tooltip: 'Clear Conversation',
+                ),
+              ),
+
+              // 2. Stop TTS Button (visible when TTS is active)
+              SizedBox(
+                width: 52,
+                height: 52,
+                child: AnimatedOpacity(
+                  opacity: (_isTtsPlaying || _isProcessingTtsQueue) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: !(_isTtsPlaying || _isProcessingTtsQueue),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: _stopTts,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.orange.shade600, Colors.orange.shade400],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                        ],
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.orange.shade300.withOpacity(0.4),
+                              blurRadius: 12,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.volume_off_rounded, color: Colors.white, size: 24),
                       ),
-                      child: const Icon(Icons.volume_off_rounded, color: Colors.white, size: 24),
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: 20),
 
-              // Microphone Button
+              // 3. Microphone Button
               GestureDetector(
                 onTap: () {
                   if (_isRecording) {
@@ -2046,9 +2121,55 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                   ),
                 ),
               ),
-              // Spacer to balance layout when stop button is hidden
-              const SizedBox(width: 20),
-              const SizedBox(width: 52),
+
+              // 4. Replay TTS Button
+              SizedBox(
+                width: 52,
+                height: 52,
+                child: AnimatedOpacity(
+                  opacity: (_isTtsInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: IgnorePointer(
+                    ignoring: !(_isTtsInitialized && _cascadeSegments.isNotEmpty),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: (_isTtsPlaying || _isProcessingTtsQueue)
+                          ? null
+                          : () {
+                              final lastMt = _cascadeSegments.lastOrNull?.mt;
+                              if (lastMt != null && lastMt.isNotEmpty) {
+                                _ttsQueue.add(lastMt);
+                                _processTtsQueue();
+                              } else if (_mtText.isNotEmpty) {
+                                _runTts(_mtText);
+                              }
+                            },
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [const Color(0xFF1E3C72), const Color(0xFF2A5298)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF1E3C72).withOpacity(0.3),
+                              blurRadius: 12,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                        ),
+                        child: const Icon(Icons.volume_up_rounded, color: Colors.white, size: 24),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // 5. Spacer to balance layout (width 52)
+              const SizedBox(width: 52, height: 52),
             ],
           ),
           const SizedBox(height: 8),

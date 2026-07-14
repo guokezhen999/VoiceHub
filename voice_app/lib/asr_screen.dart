@@ -34,6 +34,13 @@ class _AsrScreenState extends State<AsrScreen> {
   String _currentResult = "";
   int _sentenceIndex = 0;
 
+  // Pre-speech buffer: cache audio before VAD first triggers,
+  // then replay into the recognizer to avoid losing speech onset.
+  bool _vadEverDetected = false;
+  final List<Float32List> _preSpeechBuffer = [];
+  static const int _maxPreSpeechSamples = 8000; // 0.5 seconds
+  int _preSpeechBufferSize = 0;
+
   // Local model configurations
   List<ModelInfo> _allModels = [];
   String? _selectedLanguage;
@@ -225,9 +232,7 @@ class _AsrScreenState extends State<AsrScreen> {
           _circularBuffer!.reset();
 
           setState(() {
-            _sentences = [];
             _currentResult = "";
-            _sentenceIndex = 0;
             _updateTranscript();
           });
 
@@ -312,11 +317,12 @@ class _AsrScreenState extends State<AsrScreen> {
 
           _vad!.reset();
           _circularBuffer!.reset();
+          _vadEverDetected = false;
+          _preSpeechBuffer.clear();
+          _preSpeechBufferSize = 0;
 
           setState(() {
-            _sentences = [];
             _currentResult = "";
-            _sentenceIndex = 0;
             _updateTranscript();
           });
 
@@ -335,7 +341,64 @@ class _AsrScreenState extends State<AsrScreen> {
               _vad!.acceptWaveform(samples);
 
               if (_vad!.isDetected()) {
+                if (!_vadEverDetected) {
+                  // First time VAD triggers: replay buffered pre-speech audio
+                  // into the recognizer to avoid losing the speech onset.
+                  _vadEverDetected = true;
+                  for (final buffered in _preSpeechBuffer) {
+                    _streamWrap!.stream.acceptWaveform(samples: buffered, sampleRate: 16000);
+                  }
+                  _preSpeechBuffer.clear();
+                  _preSpeechBufferSize = 0;
+                }
                 _streamWrap!.stream.acceptWaveform(samples: samples, sampleRate: 16000);
+              } else if (!_vadEverDetected) {
+                // VAD hasn't triggered yet; buffer audio for later replay (sliding window).
+                _preSpeechBuffer.add(samples);
+                _preSpeechBufferSize += samples.length;
+                while (_preSpeechBufferSize > _maxPreSpeechSamples) {
+                  final removed = _preSpeechBuffer.removeAt(0);
+                  _preSpeechBufferSize -= removed.length;
+                }
+              }
+
+              // Check if a segment has finished immediately inside the loop to avoid losing subsequent audio
+              while (!_vad!.isEmpty()) {
+                _vad!.pop();
+
+                while (_recognizer!.isReady(_streamWrap!.stream)) {
+                  _recognizer!.decode(_streamWrap!.stream);
+                }
+
+                final finalT = _recognizer!.getResult(_streamWrap!.stream).text;
+                _streamWrap?.free();
+                final stream = _recognizer!.createStream();
+                _streamWrap = sher_onnx_StreamDisposeWrap(stream);
+                // Reset VAD detection state so the next speech onset
+                // also gets its own pre-speech buffer replay.
+                _vadEverDetected = false;
+                _preSpeechBuffer.clear();
+                _preSpeechBufferSize = 0;
+
+                if (finalT.isNotEmpty) {
+                  String finalizedText = finalT;
+                  final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
+                  while (finalizedText.isNotEmpty) {
+                    final firstChar = finalizedText[0];
+                    if (leadingPuncs.contains(firstChar)) {
+                      finalizedText = finalizedText.substring(1);
+                    } else {
+                      break;
+                    }
+                  }
+                  finalizedText = _formatTextWithCasing(finalizedText);
+                  if (finalizedText.isNotEmpty) {
+                    _sentences.add(finalizedText);
+                    _sentenceIndex += 1;
+                  }
+                }
+                _currentResult = "";
+                _updateTranscript();
               }
             }
 
@@ -350,33 +413,6 @@ class _AsrScreenState extends State<AsrScreen> {
                 _currentResult = _formatTextWithCasing(text);
                 _updateTranscript();
               });
-            }
-
-            while (!_vad!.isEmpty()) {
-              _vad!.pop();
-
-              final finalT = _recognizer!.getResult(_streamWrap!.stream).text;
-              _recognizer!.reset(_streamWrap!.stream);
-
-              if (finalT.isNotEmpty) {
-                String finalizedText = finalT;
-                final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                while (finalizedText.isNotEmpty) {
-                  final firstChar = finalizedText[0];
-                  if (leadingPuncs.contains(firstChar)) {
-                    finalizedText = finalizedText.substring(1);
-                  } else {
-                    break;
-                  }
-                }
-                finalizedText = _formatTextWithCasing(finalizedText);
-                if (finalizedText.isNotEmpty) {
-                  _sentences.add(finalizedText);
-                  _sentenceIndex += 1;
-                }
-              }
-              _currentResult = "";
-              _updateTranscript();
             }
           });
         }
@@ -407,6 +443,15 @@ class _AsrScreenState extends State<AsrScreen> {
       }
     }
     return result.toString();
+  }
+
+  void _clearTranscript() {
+    setState(() {
+      _sentences = [];
+      _currentResult = "";
+      _sentenceIndex = 0;
+      _updateTranscript();
+    });
   }
 
   void _updateTranscript() {
@@ -712,6 +757,16 @@ class _AsrScreenState extends State<AsrScreen> {
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
                 hintText: _recordState != RecordState.stop ? 'Listening...' : 'Transcript will appear here...',
+              ),
+            ),
+            const SizedBox(height: 12),
+            // Clear transcript button
+            Center(
+              child: TextButton.icon(
+                onPressed: _sentences.isEmpty && _currentResult.isEmpty ? null : _clearTranscript,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Clear Transcript'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red.shade400),
               ),
             ),
           ] else ...[
