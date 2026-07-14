@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 import 'utils.dart';
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
+import 'voice_engine_ffi_bridge.dart';
 
 class AsrScreen extends StatefulWidget {
   const AsrScreen({Key? key}) : super(key: key);
@@ -24,28 +26,21 @@ class _AsrScreenState extends State<AsrScreen> {
 
   bool _isInitialized = false;
   bool _isOfflineModel = false;
-  sherpa_onnx.OnlineRecognizer? _recognizer;
-  sherpa_onnx.OfflineRecognizer? _offlineRecognizer;
-  sher_onnx_StreamDisposeWrap? _streamWrap;
-  sherpa_onnx.VoiceActivityDetector? _vad;
-  sherpa_onnx.CircularBuffer? _circularBuffer;
+  Pointer<Void>? _handle;
 
   List<String> _sentences = [];
   String _currentResult = "";
   int _sentenceIndex = 0;
-
-  // Pre-speech buffer: cache audio before VAD first triggers,
-  // then replay into the recognizer to avoid losing speech onset.
-  bool _vadEverDetected = false;
-  final List<Float32List> _preSpeechBuffer = [];
-  static const int _maxPreSpeechSamples = 8000; // 0.5 seconds
-  int _preSpeechBufferSize = 0;
 
   // Local model configurations
   List<ModelInfo> _allModels = [];
   String? _selectedLanguage;
   ModelInfo? _selectedModel;
   bool _loadingModels = true;
+
+  static const List<String> _leadingPuncs = [
+    '，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';',
+  ];
 
   @override
   void initState() {
@@ -69,27 +64,27 @@ class _AsrScreenState extends State<AsrScreen> {
       _allModels = models;
       _loadingModels = false;
 
-      final availableLanguages = _allModels.expand((m) => m.languages).toSet().toList();
-      // Handle language selection logic
-      if (_selectedLanguage == null || !availableLanguages.contains(_selectedLanguage)) {
-        if (availableLanguages.isNotEmpty) {
-          _selectedLanguage = availableLanguages.first;
-        } else {
-          _selectedLanguage = null;
-        }
+      final availableLanguages =
+          _allModels.expand((m) => m.languages).toSet().toList();
+      if (_selectedLanguage == null ||
+          !availableLanguages.contains(_selectedLanguage)) {
+        _selectedLanguage =
+            availableLanguages.isNotEmpty ? availableLanguages.first : null;
       }
       _updateSelectedModel();
     });
   }
 
   void _updateSelectedModel() {
-    final languageModels = _allModels.where((m) => m.languages.contains(_selectedLanguage)).toList();
+    final languageModels =
+        _allModels.where((m) => m.languages.contains(_selectedLanguage)).toList();
     if (languageModels.isNotEmpty) {
-      if (_selectedModel == null || !_selectedModel!.languages.contains(_selectedLanguage)) {
+      if (_selectedModel == null ||
+          !_selectedModel!.languages.contains(_selectedLanguage)) {
         _selectedModel = languageModels.first;
       } else {
-        // Keep selected if still valid
-        final stillExists = languageModels.any((m) => m.path == _selectedModel!.path);
+        final stillExists =
+            languageModels.any((m) => m.path == _selectedModel!.path);
         if (!stillExists) {
           _selectedModel = languageModels.first;
         }
@@ -97,23 +92,16 @@ class _AsrScreenState extends State<AsrScreen> {
     } else {
       _selectedModel = null;
     }
-    // De-initialize if the active model changes
     if (_isInitialized) {
       _deinitializeEngine();
     }
   }
 
   void _deinitializeEngine() {
-    _streamWrap?.free();
-    _streamWrap = null;
-    _recognizer?.free();
-    _recognizer = null;
-    _offlineRecognizer?.free();
-    _offlineRecognizer = null;
-    _vad?.free();
-    _vad = null;
-    _circularBuffer?.free();
-    _circularBuffer = null;
+    if (_handle != null) {
+      VoiceEngineBridge.instance.destroy(_handle!);
+      _handle = null;
+    }
     setState(() {
       _isInitialized = false;
     });
@@ -129,74 +117,39 @@ class _AsrScreenState extends State<AsrScreen> {
     }
 
     try {
-      sherpa_onnx.initBindings();
-
-      final encoder = _selectedModel!.asrEncoderPath!;
-      final decoder = _selectedModel!.asrDecoderPath!;
-      final joiner = _selectedModel!.asrJoinerPath!;
-      final tokens = _selectedModel!.tokensPath!;
-
-      // Check if it is a non-streaming/offline model based on metadata
-      _isOfflineModel = !_selectedModel!.isStreamingASR;
+      await VoiceEngineBridge.init();
 
       final sileroModelPath = await ModelManager.ensureSileroVad();
-      final vadConfig = sherpa_onnx.VadModelConfig(
-        sileroVad: sherpa_onnx.SileroVadModelConfig(
-          model: sileroModelPath,
-          threshold: 0.5,
-          minSilenceDuration: 0.5,
-          minSpeechDuration: 0.25,
-          windowSize: 512,
-          maxSpeechDuration: 20.0,
-        ),
-        sampleRate: 16000,
-        numThreads: 1,
-        debug: false,
-      );
-      _vad = sherpa_onnx.VoiceActivityDetector(config: vadConfig, bufferSizeInSeconds: 60);
-      _circularBuffer = sherpa_onnx.CircularBuffer(capacity: 30 * 16000);
+      _isOfflineModel = !_selectedModel!.isStreamingASR;
 
-      if (_isOfflineModel) {
-        final modelConfig = sherpa_onnx.OfflineModelConfig(
-          transducer: sherpa_onnx.OfflineTransducerModelConfig(
-            encoder: encoder,
-            decoder: decoder,
-            joiner: joiner,
-          ),
-          tokens: tokens,
-          modelType: 'zipformer2',
-        );
+      final config = {
+        'mode': _isOfflineModel ? 'offline' : 'online',
+        'encoder': _selectedModel!.asrEncoderPath!,
+        'decoder': _selectedModel!.asrDecoderPath!,
+        'joiner': _selectedModel!.asrJoinerPath!,
+        'tokens': _selectedModel!.tokensPath!,
+        'model_type': 'zipformer2',
+        'decoding_method': 'greedy_search',
+        'num_threads': 1,
+        'vad': {
+          'model': sileroModelPath,
+          'threshold': 0.5,
+          'min_silence_duration': 0.5,
+          'min_speech_duration': 0.25,
+          'window_size': 512,
+          'max_speech_duration': 20.0,
+          'sample_rate': 16000,
+          'num_threads': 1,
+          'buffer_size_seconds': 60.0,
+        },
+        'endpoint': {
+          'enable': true,
+          'rule1_min_trailing_silence': 2.4,
+          'rule2_min_trailing_silence': 1.0,
+        },
+      };
 
-        final config = sherpa_onnx.OfflineRecognizerConfig(
-          model: modelConfig,
-          decodingMethod: 'greedy_search',
-        );
-
-        _offlineRecognizer = sherpa_onnx.OfflineRecognizer(config);
-      } else {
-        final modelConfig = sherpa_onnx.OnlineModelConfig(
-          transducer: sherpa_onnx.OnlineTransducerModelConfig(
-            encoder: encoder,
-            decoder: decoder,
-            joiner: joiner,
-          ),
-          tokens: tokens,
-          modelType: 'zipformer2', // default for zipformer-transducer
-        );
-
-        final config = sherpa_onnx.OnlineRecognizerConfig(
-          model: modelConfig,
-          ruleFsts: '',
-          enableEndpoint: true,
-          rule1MinTrailingSilence: 2.4,
-          rule2MinTrailingSilence: 1.0,
-          decodingMethod: 'greedy_search',
-        );
-
-        _recognizer = sherpa_onnx.OnlineRecognizer(config);
-        final stream = _recognizer!.createStream();
-        _streamWrap = sher_onnx_StreamDisposeWrap(stream);
-      }
+      _handle = VoiceEngineBridge.instance.create(jsonEncode(config));
 
       setState(() {
         _isInitialized = true;
@@ -214,212 +167,83 @@ class _AsrScreenState extends State<AsrScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (!_isInitialized) {
-      await _initializeEngine();
+    if (!_isInitialized || _handle == null) return;
+
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        const config = RecordConfig(
+          encoder: AudioEncoder.pcm16bits,
+          sampleRate: 16000,
+          numChannels: 1,
+        );
+
+        VoiceEngineBridge.instance.reset(_handle!);
+
+        setState(() {
+          _currentResult = "";
+          _updateTranscript();
+        });
+
+        final audioStream = await _audioRecorder.startStream(config);
+
+        _audioStreamSub = audioStream.listen((data) {
+          if (_handle == null) return;
+
+          final samples = convertBytesToFloat32(Uint8List.fromList(data));
+          VoiceEngineBridge.instance.acceptWaveform(_handle!, samples);
+          final r = VoiceEngineBridge.instance.poll(_handle!);
+          _onPoll(r);
+        });
+      }
+    } catch (e) {
+      debugPrint('ASR Recording Error: $e');
+    }
+  }
+
+  void _onPoll(VoiceEnginePollResult r) {
+    setState(() {
+      for (final f in r.finalized) {
+        var text = _stripLeadingPuncs(f);
+        text = _formatTextWithCasing(text);
+        if (text.isNotEmpty) {
+          _sentences.add(text);
+          _sentenceIndex += 1;
+        }
+      }
+
+      if (r.speaking) {
+        _currentResult = r.partial.isEmpty
+            ? "Speaking..."
+            : _formatTextWithCasing(r.partial);
+      } else {
+        _currentResult = "";
+      }
+      _updateTranscript();
+    });
+  }
+
+  static String _stripLeadingPuncs(String text) {
+    while (text.isNotEmpty && _leadingPuncs.contains(text[0])) {
+      text = text.substring(1);
+    }
+    return text;
+  }
+
+  Future<void> _stopRecording() async {
+    await _audioStreamSub?.cancel();
+    _audioStreamSub = null;
+    await _audioRecorder.stop();
+
+    if (_handle != null) {
+      VoiceEngineBridge.instance.flush(_handle!);
+      final r = VoiceEngineBridge.instance.poll(_handle!);
+      _onPoll(r);
     }
 
-    if (_isOfflineModel) {
-      if (_offlineRecognizer == null || _vad == null || _circularBuffer == null) return;
-      try {
-        if (await _audioRecorder.hasPermission()) {
-          const config = RecordConfig(
-            encoder: AudioEncoder.pcm16bits,
-            sampleRate: 16000,
-            numChannels: 1,
-          );
-
-          _vad!.reset();
-          _circularBuffer!.reset();
-
-          setState(() {
-            _currentResult = "";
-            _updateTranscript();
-          });
-
-          final audioStream = await _audioRecorder.startStream(config);
-
-          _audioStreamSub = audioStream.listen((data) {
-            if (_offlineRecognizer == null || _vad == null || _circularBuffer == null) return;
-
-            final samplesFloat32 = convertBytesToFloat32(Uint8List.fromList(data));
-            _circularBuffer!.push(samplesFloat32);
-
-            const windowSize = 512;
-            while (_circularBuffer!.size >= windowSize) {
-              final samples = _circularBuffer!.get(startIndex: _circularBuffer!.head, n: windowSize);
-              _circularBuffer!.pop(windowSize);
-              _vad!.acceptWaveform(samples);
-            }
-
-            if (_vad!.isDetected()) {
-              if (_currentResult != "Speaking...") {
-                setState(() {
-                  _currentResult = "Speaking...";
-                  _updateTranscript();
-                });
-              }
-            } else {
-              if (_currentResult == "Speaking...") {
-                setState(() {
-                  _currentResult = "";
-                  _updateTranscript();
-                });
-              }
-            }
-
-            while (!_vad!.isEmpty()) {
-              final segment = _vad!.front();
-              _vad!.pop();
-
-              final stream = _offlineRecognizer!.createStream();
-              stream.acceptWaveform(samples: segment.samples, sampleRate: 16000);
-              _offlineRecognizer!.decode(stream);
-              final text = _offlineRecognizer!.getResult(stream).text;
-              stream.free();
-
-              if (text.isNotEmpty) {
-                String finalizedText = text;
-                final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                while (finalizedText.isNotEmpty) {
-                  final firstChar = finalizedText[0];
-                  if (leadingPuncs.contains(firstChar)) {
-                    finalizedText = finalizedText.substring(1);
-                  } else {
-                    break;
-                  }
-                }
-                finalizedText = _formatTextWithCasing(finalizedText);
-                if (finalizedText.isNotEmpty) {
-                  setState(() {
-                    _sentences.add(finalizedText);
-                    _sentenceIndex += 1;
-                    _currentResult = "";
-                    _updateTranscript();
-                  });
-                }
-              }
-            }
-          });
-        }
-      } catch (e) {
-        debugPrint('ASR Offline Recording Error: $e');
-      }
-    } else {
-      if (_recognizer == null || _streamWrap == null || _vad == null || _circularBuffer == null) return;
-
-      try {
-        if (await _audioRecorder.hasPermission()) {
-          const config = RecordConfig(
-            encoder: AudioEncoder.pcm16bits,
-            sampleRate: 16000,
-            numChannels: 1,
-          );
-
-          _vad!.reset();
-          _circularBuffer!.reset();
-          _vadEverDetected = false;
-          _preSpeechBuffer.clear();
-          _preSpeechBufferSize = 0;
-
-          setState(() {
-            _currentResult = "";
-            _updateTranscript();
-          });
-
-          final audioStream = await _audioRecorder.startStream(config);
-
-          _audioStreamSub = audioStream.listen((data) {
-            if (_streamWrap == null || _recognizer == null || _vad == null || _circularBuffer == null) return;
-
-            final samplesFloat32 = convertBytesToFloat32(Uint8List.fromList(data));
-            _circularBuffer!.push(samplesFloat32);
-
-            const windowSize = 512;
-            while (_circularBuffer!.size >= windowSize) {
-              final samples = _circularBuffer!.get(startIndex: _circularBuffer!.head, n: windowSize);
-              _circularBuffer!.pop(windowSize);
-              _vad!.acceptWaveform(samples);
-
-              if (_vad!.isDetected()) {
-                if (!_vadEverDetected) {
-                  // First time VAD triggers: replay buffered pre-speech audio
-                  // into the recognizer to avoid losing the speech onset.
-                  _vadEverDetected = true;
-                  for (final buffered in _preSpeechBuffer) {
-                    _streamWrap!.stream.acceptWaveform(samples: buffered, sampleRate: 16000);
-                  }
-                  _preSpeechBuffer.clear();
-                  _preSpeechBufferSize = 0;
-                }
-                _streamWrap!.stream.acceptWaveform(samples: samples, sampleRate: 16000);
-              } else if (!_vadEverDetected) {
-                // VAD hasn't triggered yet; buffer audio for later replay (sliding window).
-                _preSpeechBuffer.add(samples);
-                _preSpeechBufferSize += samples.length;
-                while (_preSpeechBufferSize > _maxPreSpeechSamples) {
-                  final removed = _preSpeechBuffer.removeAt(0);
-                  _preSpeechBufferSize -= removed.length;
-                }
-              }
-
-              // Check if a segment has finished immediately inside the loop to avoid losing subsequent audio
-              while (!_vad!.isEmpty()) {
-                _vad!.pop();
-
-                while (_recognizer!.isReady(_streamWrap!.stream)) {
-                  _recognizer!.decode(_streamWrap!.stream);
-                }
-
-                final finalT = _recognizer!.getResult(_streamWrap!.stream).text;
-                _streamWrap?.free();
-                final stream = _recognizer!.createStream();
-                _streamWrap = sher_onnx_StreamDisposeWrap(stream);
-                // Reset VAD detection state so the next speech onset
-                // also gets its own pre-speech buffer replay.
-                _vadEverDetected = false;
-                _preSpeechBuffer.clear();
-                _preSpeechBufferSize = 0;
-
-                if (finalT.isNotEmpty) {
-                  String finalizedText = finalT;
-                  final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-                  while (finalizedText.isNotEmpty) {
-                    final firstChar = finalizedText[0];
-                    if (leadingPuncs.contains(firstChar)) {
-                      finalizedText = finalizedText.substring(1);
-                    } else {
-                      break;
-                    }
-                  }
-                  finalizedText = _formatTextWithCasing(finalizedText);
-                  if (finalizedText.isNotEmpty) {
-                    _sentences.add(finalizedText);
-                    _sentenceIndex += 1;
-                  }
-                }
-                _currentResult = "";
-                _updateTranscript();
-              }
-            }
-
-            while (_recognizer!.isReady(_streamWrap!.stream)) {
-              _recognizer!.decode(_streamWrap!.stream);
-            }
-
-            final text = _recognizer!.getResult(_streamWrap!.stream).text;
-
-            if (text.isNotEmpty) {
-              setState(() {
-                _currentResult = _formatTextWithCasing(text);
-                _updateTranscript();
-              });
-            }
-          });
-        }
-      } catch (e) {
-        debugPrint('ASR Recording Error: $e');
-      }
-    }
+    setState(() {
+      _currentResult = "";
+      _updateTranscript();
+    });
   }
 
   String _formatTextWithCasing(String text) {
@@ -458,14 +282,8 @@ class _AsrScreenState extends State<AsrScreen> {
     List<String> renderedSentences = List.from(_sentences);
     String renderedCurrent = _currentResult;
 
-    final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-    while (renderedCurrent.isNotEmpty) {
-      final firstChar = renderedCurrent[0];
-      if (leadingPuncs.contains(firstChar)) {
-        renderedCurrent = renderedCurrent.substring(1);
-      } else {
-        break;
-      }
+    while (renderedCurrent.isNotEmpty && _leadingPuncs.contains(renderedCurrent[0])) {
+      renderedCurrent = renderedCurrent.substring(1);
     }
 
     String fullText = renderedSentences.asMap().entries.map((entry) {
@@ -483,96 +301,6 @@ class _AsrScreenState extends State<AsrScreen> {
     );
   }
 
-  Future<void> _stopRecording() async {
-    if (_isOfflineModel) {
-      await _audioStreamSub?.cancel();
-      _audioStreamSub = null;
-      await _audioRecorder.stop();
-
-      if (_offlineRecognizer != null && _vad != null) {
-        _vad!.flush();
-
-        while (!_vad!.isEmpty()) {
-          final segment = _vad!.front();
-          _vad!.pop();
-
-          final stream = _offlineRecognizer!.createStream();
-          stream.acceptWaveform(samples: segment.samples, sampleRate: 16000);
-          _offlineRecognizer!.decode(stream);
-          final text = _offlineRecognizer!.getResult(stream).text;
-          stream.free();
-
-          if (text.isNotEmpty) {
-            String finalizedText = text;
-            final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-            while (finalizedText.isNotEmpty) {
-              final firstChar = finalizedText[0];
-              if (leadingPuncs.contains(firstChar)) {
-                finalizedText = finalizedText.substring(1);
-              } else {
-                break;
-              }
-            }
-            finalizedText = _formatTextWithCasing(finalizedText);
-            if (finalizedText.isNotEmpty) {
-              _sentences.add(finalizedText);
-              _sentenceIndex += 1;
-            }
-          }
-        }
-      }
-
-      setState(() {
-        _currentResult = "";
-        _updateTranscript();
-      });
-    } else {
-      await _audioStreamSub?.cancel();
-      _audioStreamSub = null;
-      await _audioRecorder.stop();
-
-      if (_recognizer != null && _vad != null && _streamWrap != null) {
-        _vad!.flush();
-
-        while (!_vad!.isEmpty()) {
-          _vad!.pop();
-
-          final finalT = _recognizer!.getResult(_streamWrap!.stream).text;
-          _recognizer!.reset(_streamWrap!.stream);
-
-          if (finalT.isNotEmpty) {
-            String finalizedText = finalT;
-            final leadingPuncs = ['，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';'];
-            while (finalizedText.isNotEmpty) {
-              final firstChar = finalizedText[0];
-              if (leadingPuncs.contains(firstChar)) {
-                finalizedText = finalizedText.substring(1);
-              } else {
-                break;
-              }
-            }
-            finalizedText = _formatTextWithCasing(finalizedText);
-            if (finalizedText.isNotEmpty) {
-              _sentences.add(finalizedText);
-              _sentenceIndex += 1;
-            }
-          }
-        }
-      }
-
-      setState(() {
-        _currentResult = "";
-        _updateTranscript();
-      });
-
-      _streamWrap?.free();
-      if (_recognizer != null) {
-        final stream = _recognizer!.createStream();
-        _streamWrap = sher_onnx_StreamDisposeWrap(stream);
-      }
-    }
-  }
-
   void _openModelManagement() {
     showModalBottomSheet(
       context: context,
@@ -588,7 +316,8 @@ class _AsrScreenState extends State<AsrScreen> {
   @override
   Widget build(BuildContext context) {
     final availableLanguages = _allModels.expand((m) => m.languages).toSet().toList();
-    final languageModels = _allModels.where((m) => m.languages.contains(_selectedLanguage)).toList();
+    final languageModels =
+        _allModels.where((m) => m.languages.contains(_selectedLanguage)).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -626,7 +355,7 @@ class _AsrScreenState extends State<AsrScreen> {
                     ],
                   ),
                   const SizedBox(height: 10),
-                  
+
                   if (_loadingModels)
                     const Center(child: CircularProgressIndicator())
                   else ...[
@@ -653,12 +382,13 @@ class _AsrScreenState extends State<AsrScreen> {
                         ),
                       ),
                     ] else ...[
-                      // Language selection Dropdown
-                      const Text('Select Language:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const Text('Select Language:',
+                          style: TextStyle(fontSize: 12, color: Colors.grey)),
                       const SizedBox(height: 4),
                       DropdownButtonFormField<String>(
                         value: _selectedLanguage,
-                        decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                        decoration: const InputDecoration(
+                            border: OutlineInputBorder(), isDense: true),
                         items: availableLanguages.map((lang) {
                           return DropdownMenuItem(value: lang, child: Text(lang));
                         }).toList(),
@@ -673,12 +403,13 @@ class _AsrScreenState extends State<AsrScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Model selection Dropdown
-                      const Text('Select Model:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                      const Text('Select Model:',
+                          style: TextStyle(fontSize: 12, color: Colors.grey)),
                       const SizedBox(height: 4),
                       DropdownButtonFormField<ModelInfo>(
                         value: _selectedModel,
-                        decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true),
+                        decoration: const InputDecoration(
+                            border: OutlineInputBorder(), isDense: true),
                         items: languageModels.map((model) {
                           return DropdownMenuItem(value: model, child: Text(model.name));
                         }).toList(),
@@ -737,18 +468,23 @@ class _AsrScreenState extends State<AsrScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(_recordState != RecordState.stop ? Icons.stop : Icons.mic, color: Colors.white),
+                    Icon(_recordState != RecordState.stop ? Icons.stop : Icons.mic,
+                        color: Colors.white),
                     const SizedBox(width: 10),
                     Text(
                       _recordState != RecordState.stop ? 'Stop Recording' : 'Start Live ASR',
-                      style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 20),
-            const Text('Recognized Transcript:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            const Text('Recognized Transcript:',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             TextField(
               controller: _transcriptController,
@@ -756,14 +492,17 @@ class _AsrScreenState extends State<AsrScreen> {
               readOnly: true,
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
-                hintText: _recordState != RecordState.stop ? 'Listening...' : 'Transcript will appear here...',
+                hintText: _recordState != RecordState.stop
+                    ? 'Listening...'
+                    : 'Transcript will appear here...',
               ),
             ),
             const SizedBox(height: 12),
-            // Clear transcript button
             Center(
               child: TextButton.icon(
-                onPressed: _sentences.isEmpty && _currentResult.isEmpty ? null : _clearTranscript,
+                onPressed: _sentences.isEmpty && _currentResult.isEmpty
+                    ? null
+                    : _clearTranscript,
                 icon: const Icon(Icons.delete_outline, size: 18),
                 label: const Text('Clear Transcript'),
                 style: TextButton.styleFrom(foregroundColor: Colors.red.shade400),
@@ -787,23 +526,10 @@ class _AsrScreenState extends State<AsrScreen> {
     _recordSub?.cancel();
     _audioStreamSub?.cancel();
     _audioRecorder.dispose();
-    _streamWrap?.free();
-    _recognizer?.free();
-    _offlineRecognizer?.free();
-    _vad?.free();
-    _circularBuffer?.free();
+    if (_handle != null) {
+      VoiceEngineBridge.instance.destroy(_handle!);
+      _handle = null;
+    }
     super.dispose();
   }
 }
-
-// Helper wrapper to dispose streams cleanly
-class sher_onnx_StreamDisposeWrap {
-  final sherpa_onnx.OnlineStream stream;
-  sher_onnx_StreamDisposeWrap(this.stream);
-  void free() {
-    try {
-      stream.free();
-    } catch (_) {}
-  }
-}
-

@@ -7,6 +7,8 @@ PODS:
     - FlutterMacOS
   - sherpa_onnx_macos (1.13.4):
     - FlutterMacOS
+  - voice_engine_macos (1.0.0):
+    - FlutterMacOS
 
 DEPENDENCIES:
   - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos`)
@@ -14,6 +16,7 @@ DEPENDENCIES:
   - llamacpp_macos (from `Flutter/ephemeral/.symlinks/plugins/llamacpp_macos/macos`)
   - opus_mt_macos (from `Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos`)
   - sherpa_onnx_macos (from `Flutter/ephemeral/.symlinks/plugins/sherpa_onnx_macos/macos`)
+  - voice_engine_macos (from `Flutter/ephemeral/.symlinks/plugins/voice_engine_macos/macos`)
 
 EXTERNAL SOURCES:
   audioplayers_darwin:
@@ -26,6 +29,8 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos
   sherpa_onnx_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/sherpa_onnx_macos/macos
+  voice_engine_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/voice_engine_macos/macos
 
 SPEC CHECKSUMS:
   audioplayers_darwin: 761f2948df701d05b5db603220c384fb55720012
@@ -33,6 +38,7 @@ SPEC CHECKSUMS:
   llamacpp_macos: c080101e7e539cf74b29b7466a84bfe1ea06803e
   opus_mt_macos: 12f3586f36d67e4f5f5d3b7eef6383b6939549af
   sherpa_onnx_macos: e648c8a9f1a02ec1d7e2788a2963bc86e67e2dd7
+  voice_engine_macos: f566b1045a9ef4ad9219e7424103a7d4f1ac7e3a
 
 PODFILE CHECKSUM: b99845b90a1c267a2ed2b01882b3db0256012d11
 

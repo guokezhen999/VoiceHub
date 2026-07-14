@@ -1,0 +1,17 @@
+name: voice_engine_macos
+description: macOS FFI plugin for the voice_engine native ASR pipeline (libvoice_engine).
+version: 1.0.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=2.8.1"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  plugin:
+    platforms:
+      macos:
+        ffiPlugin: true
