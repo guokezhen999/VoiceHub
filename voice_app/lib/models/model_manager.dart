@@ -14,6 +14,115 @@ const List<String> supportedLanguages = [
   'Japanese',
 ];
 
+class LanguageManager {
+  static const List<String> defaultLanguages = [
+    'English',
+    'Chinese',
+    'Cantonese',
+    'Vietnamese',
+    'Japanese',
+  ];
+
+  static List<String> _languages = [];
+  static Set<String> _enabledLanguages = {};
+  static bool _loaded = false;
+
+  static List<String> get languages {
+    if (!_loaded) {
+      return defaultLanguages;
+    }
+    return _languages;
+  }
+
+  static Set<String> get enabledLanguages {
+    if (!_loaded) {
+      return Set.from(defaultLanguages);
+    }
+    return _enabledLanguages;
+  }
+
+  static Future<void> load() async {
+    if (_loaded) return;
+    final file = await _getConfigFile();
+    if (file.existsSync()) {
+      try {
+        final content = await file.readAsString();
+        final json = jsonDecode(content) as Map<String, dynamic>;
+        final langs = List<String>.from(json['languages'] ?? []);
+        final enabled = Set<String>.from(json['enabled'] ?? []);
+
+        // Ensure all default languages are in the list
+        for (final l in defaultLanguages) {
+          if (!langs.contains(l)) {
+            langs.add(l);
+          }
+        }
+
+        _languages = langs;
+        if (enabled.isEmpty) {
+          _enabledLanguages = Set<String>.from(_languages);
+        } else {
+          _enabledLanguages = enabled.where((l) => _languages.contains(l)).toSet();
+        }
+        _loaded = true;
+        return;
+      } catch (e) {
+        print('Error loading languages config: $e');
+      }
+    }
+
+    _languages = List.from(defaultLanguages);
+    _enabledLanguages = Set.from(defaultLanguages);
+    _loaded = true;
+  }
+
+  static Future<void> save() async {
+    final file = await _getConfigFile();
+    final json = {
+      'languages': _languages,
+      'enabled': _enabledLanguages.toList(),
+    };
+    await file.writeAsString(jsonEncode(json));
+  }
+
+  static Future<void> addLanguage(String lang) async {
+    await load();
+    final trimmed = lang.trim();
+    if (trimmed.isEmpty) return;
+    final capitalized = trimmed[0].toUpperCase() + trimmed.substring(1);
+    if (!_languages.contains(capitalized)) {
+      _languages.add(capitalized);
+      _enabledLanguages.add(capitalized);
+      await save();
+    }
+  }
+
+  static Future<void> removeLanguage(String lang) async {
+    await load();
+    if (defaultLanguages.contains(lang)) return;
+    if (_languages.contains(lang)) {
+      _languages.remove(lang);
+      _enabledLanguages.remove(lang);
+      await save();
+    }
+  }
+
+  static Future<void> toggleLanguage(String lang, bool enabled) async {
+    await load();
+    if (enabled) {
+      _enabledLanguages.add(lang);
+    } else {
+      _enabledLanguages.remove(lang);
+    }
+    await save();
+  }
+
+  static Future<File> _getConfigFile() async {
+    final appSupport = await getApplicationSupportDirectory();
+    return File(p.join(appSupport.path, 'languages_config.json'));
+  }
+}
+
 class ModelInfo {
   final String name;
   final String language;

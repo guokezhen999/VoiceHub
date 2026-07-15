@@ -1,5 +1,9 @@
 #include "voice_engine_ffi.h"
 
+#ifdef __APPLE__
+#include <AudioToolbox/AudioToolbox.h>
+#endif
+
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -128,4 +132,74 @@ const char* voice_engine_last_error() {
   std::lock_guard<std::mutex> lock(g_error_mutex);
   if (g_last_error.empty()) return nullptr;
   return g_last_error.c_str();
+}
+
+float* voice_engine_decode_file(const char* path, int32_t* out_n) {
+  if (!path || !out_n) return nullptr;
+  *out_n = 0;
+
+#ifdef __APPLE__
+  CFStringRef pathStr = CFStringCreateWithCString(nullptr, path, kCFStringEncodingUTF8);
+  if (!pathStr) return nullptr;
+
+  CFURLRef url = CFURLCreateWithFileSystemPath(nullptr, pathStr, kCFURLPOSIXPathStyle, false);
+  CFRelease(pathStr);
+  if (!url) return nullptr;
+
+  ExtAudioFileRef audioFile = nullptr;
+  OSStatus status = ExtAudioFileOpenURL(url, &audioFile);
+  CFRelease(url);
+  if (status != noErr) return nullptr;
+
+  // Set client format to 16kHz Float32 mono PCM
+  AudioStreamBasicDescription clientFormat;
+  std::memset(&clientFormat, 0, sizeof(clientFormat));
+  clientFormat.mSampleRate = 16000.0;
+  clientFormat.mFormatID = kAudioFormatLinearPCM;
+  clientFormat.mFormatFlags = kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked;
+  clientFormat.mBitsPerChannel = 32;
+  clientFormat.mChannelsPerFrame = 1;
+  clientFormat.mFramesPerPacket = 1;
+  clientFormat.mBytesPerFrame = 4;
+  clientFormat.mBytesPerPacket = 4;
+
+  status = ExtAudioFileSetProperty(audioFile, kExtAudioFileProperty_ClientDataFormat,
+                                    sizeof(clientFormat), &clientFormat);
+  if (status != noErr) {
+    ExtAudioFileDispose(audioFile);
+    return nullptr;
+  }
+
+  std::vector<float> allSamples;
+  const int kBufferSize = 4096;
+  std::vector<float> buffer(kBufferSize);
+
+  AudioBufferList bufferList;
+  bufferList.mNumberBuffers = 1;
+  bufferList.mBuffers[0].mNumberChannels = 1;
+  bufferList.mBuffers[0].mDataByteSize = kBufferSize * sizeof(float);
+  bufferList.mBuffers[0].mData = buffer.data();
+
+  while (true) {
+    UInt32 numFrames = kBufferSize;
+    status = ExtAudioFileRead(audioFile, &numFrames, &bufferList);
+    if (status != noErr || numFrames == 0) break;
+    allSamples.insert(allSamples.end(), buffer.begin(), buffer.begin() + numFrames);
+  }
+
+  ExtAudioFileDispose(audioFile);
+
+  if (allSamples.empty()) return nullptr;
+
+  *out_n = static_cast<int32_t>(allSamples.size());
+  float* outSamples = new float[allSamples.size()];
+  std::memcpy(outSamples, allSamples.data(), allSamples.size() * sizeof(float));
+  return outSamples;
+#else
+  return nullptr;
+#endif
+}
+
+void voice_engine_free_samples(float* samples) {
+  delete[] samples;
 }

@@ -955,7 +955,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           value: value,
           isExpanded: true,
           icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey),
-          items: supportedLanguages.map((lang) {
+          items: LanguageManager.languages.map((lang) {
             return DropdownMenuItem<String>(
               value: lang,
               child: Text(

@@ -14,6 +14,7 @@ import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await LanguageManager.load();
   HardwareKeyboard.instance.clearState();
 
   // Configure AudioPlayer globally for iOS to ignore the silent/mute switch.

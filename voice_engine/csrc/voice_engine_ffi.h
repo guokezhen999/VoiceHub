@@ -43,6 +43,13 @@ void voice_engine_free_string(const char* str);
 // Get the last error message. Returns NULL if no error.
 const char* voice_engine_last_error();
 
+// Decode any audio file supported by OS (MP3, AAC, M4A, WAV, etc.) to 16kHz mono Float32 samples.
+// Returns a pointer to a float array of size *out_n. Free with voice_engine_free_samples().
+float* voice_engine_decode_file(const char* path, int32_t* out_n);
+
+// Free the float array returned by voice_engine_decode_file().
+void voice_engine_free_samples(float* samples);
+
 #ifdef __cplusplus
 }
 #endif

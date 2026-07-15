@@ -23,7 +23,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
   bool _loading = true;
 
   // Import form state
-  String _selectedLanguage = supportedLanguages[0];
+  late String _selectedLanguage;
   String _nmtSourceLanguage = 'Chinese';
   String _nmtTargetLanguage = 'English';
   final TextEditingController _modelNameController = TextEditingController();
@@ -38,6 +38,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
   void initState() {
     super.initState();
     _currentType = widget.initialType;
+    _selectedLanguage = LanguageManager.languages[0];
     _loadModels();
   }
 
@@ -50,6 +51,118 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
       _models = models;
       _loading = false;
     });
+  }
+
+  Future<void> _showLanguageFilterDialog(BuildContext context) async {
+    final TextEditingController newLangController = TextEditingController();
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.language_rounded, color: Colors.blue),
+                  SizedBox(width: 8),
+                  Text('Display Languages'),
+                ],
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Choose which languages to show in the repository:',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    Flexible(
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: LanguageManager.languages.length,
+                        itemBuilder: (context, index) {
+                          final lang = LanguageManager.languages[index];
+                          final isEnabled = LanguageManager.enabledLanguages.contains(lang);
+                          final isDefault = LanguageManager.defaultLanguages.contains(lang);
+
+                          return CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(lang, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                            value: isEnabled,
+                            secondary: isDefault
+                                ? null
+                                : IconButton(
+                                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                    onPressed: () async {
+                                      await LanguageManager.removeLanguage(lang);
+                                      setDialogState(() {});
+                                    },
+                                    tooltip: 'Delete custom language',
+                                  ),
+                            onChanged: (val) async {
+                              await LanguageManager.toggleLanguage(lang, val == true);
+                              setDialogState(() {});
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                    const Divider(),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: newLangController,
+                            decoration: const InputDecoration(
+                              hintText: 'Add custom language...',
+                              isDense: true,
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          ),
+                          onPressed: () async {
+                            final text = newLangController.text.trim();
+                            if (text.isNotEmpty) {
+                              await LanguageManager.addLanguage(text);
+                              newLangController.clear();
+                              setDialogState(() {});
+                            }
+                          },
+                          child: const Text('Add'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    setState(() {});
   }
 
   Future<void> _pickDirectory() async {
@@ -393,6 +506,16 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                       },
                     ),
                   ),
+                  const SizedBox(width: 8),
+                  IconButton(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.blue.withOpacity(0.1),
+                      foregroundColor: Colors.blue,
+                    ),
+                    icon: const Icon(Icons.filter_list),
+                    tooltip: 'Filter Languages',
+                    onPressed: () => _showLanguageFilterDialog(context),
+                  ),
                 ],
               ),
             ),
@@ -426,7 +549,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                                       border: OutlineInputBorder(),
                                       isDense: true,
                                     ),
-                                    items: supportedLanguages.map((lang) {
+                                    items: LanguageManager.languages.map((lang) {
                                       return DropdownMenuItem(value: lang, child: Text(lang));
                                     }).toList(),
                                     onChanged: (val) {
@@ -447,7 +570,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                                       border: OutlineInputBorder(),
                                       isDense: true,
                                     ),
-                                    items: supportedLanguages.map((lang) {
+                                    items: LanguageManager.languages.map((lang) {
                                       return DropdownMenuItem(value: lang, child: Text(lang));
                                     }).toList(),
                                     onChanged: (val) {
@@ -472,7 +595,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                                       border: OutlineInputBorder(),
                                       isDense: true,
                                     ),
-                                    items: supportedLanguages.map((lang) {
+                                    items: LanguageManager.languages.map((lang) {
                                       return DropdownMenuItem(value: lang, child: Text(lang));
                                     }).toList(),
                                     onChanged: (val) {
@@ -591,14 +714,34 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                         style: const TextStyle(color: Colors.grey),
                       ),
                     )
-                  else
-                    ..._models.map((model) {
+                  else ...() {
+                    final filtered = _models.where((model) {
+                      if (model.type == 'llm' || model.language == 'multi') return true;
+                      return model.languages.any((lang) => LanguageManager.enabledLanguages.contains(lang));
+                    }).toList();
+
+                    if (filtered.isEmpty && _models.isNotEmpty) {
+                      return [
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          alignment: Alignment.center,
+                          child: const Text(
+                            'No models match your display language settings.\nUse the filter button above to change display languages.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        )
+                      ];
+                    }
+
+                    return filtered.map((model) {
                       return ModelTile(
                         model: model,
                         onRename: () => _renameModel(model),
                         onDelete: () => _deleteModel(model),
                       );
-                    }).toList(),
+                    }).toList();
+                  }(),
                 ],
               ),
             ),
@@ -678,7 +821,7 @@ class _ModelTileState extends State<ModelTile> {
               content: SingleChildScrollView(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: supportedLanguages.map((lang) {
+                  children: LanguageManager.languages.map((lang) {
                     final isChecked = currentLangs.contains(lang);
                     return CheckboxListTile(
                       title: Text(lang),

@@ -55,6 +55,12 @@ typedef _FreeStringDart = void Function(Pointer<Utf8> str);
 typedef _LastErrorNative = Pointer<Utf8> Function();
 typedef _LastErrorDart = Pointer<Utf8> Function();
 
+typedef _DecodeFileNative = Pointer<Float> Function(Pointer<Utf8> path, Pointer<Int32> outN);
+typedef _DecodeFileDart = Pointer<Float> Function(Pointer<Utf8> path, Pointer<Int32> outN);
+
+typedef _FreeSamplesNative = Void Function(Pointer<Float> samples);
+typedef _FreeSamplesDart = void Function(Pointer<Float> samples);
+
 class VoiceEngineSegment {
   final String text;
   final double start;
@@ -104,6 +110,8 @@ class VoiceEngineBridge {
   late _DestroyDart _destroy;
   late _FreeStringDart _freeString;
   late _LastErrorDart _lastError;
+  late _DecodeFileDart _decodeFile;
+  late _FreeSamplesDart _freeSamples;
 
   VoiceEngineBridge._();
 
@@ -165,6 +173,14 @@ class VoiceEngineBridge {
 
     _lastError = lib
         .lookup<NativeFunction<_LastErrorNative>>('voice_engine_last_error')
+        .asFunction();
+
+    _decodeFile = lib
+        .lookup<NativeFunction<_DecodeFileNative>>('voice_engine_decode_file')
+        .asFunction();
+
+    _freeSamples = lib
+        .lookup<NativeFunction<_FreeSamplesNative>>('voice_engine_free_samples')
         .asFunction();
   }
 
@@ -257,5 +273,33 @@ class VoiceEngineBridge {
   String? lastError() {
     final errPtr = _lastError();
     return errPtr == nullptr ? null : errPtr.toDartString();
+  }
+
+  /// Decode any audio file supported by the OS (MP3, AAC, M4A, WAV, etc.)
+  /// to 16kHz mono Float32 samples.
+  Float32List? decodeAudioFile(String path) {
+    final pathPtr = path.toNativeUtf8();
+    final outNPtr = calloc<Int32>();
+    try {
+      final samplesPtr = _decodeFile(pathPtr, outNPtr);
+      if (samplesPtr == nullptr) {
+        return null;
+      }
+      final n = outNPtr.value;
+      if (n <= 0) {
+        _freeSamples(samplesPtr);
+        return null;
+      }
+      final list = samplesPtr.asTypedList(n);
+      final result = Float32List.fromList(list);
+      _freeSamples(samplesPtr);
+      return result;
+    } catch (e) {
+      print('decodeAudioFile error: $e');
+      return null;
+    } finally {
+      calloc.free(pathPtr);
+      calloc.free(outNPtr);
+    }
   }
 }

@@ -143,6 +143,11 @@ target_include_directories(voice_engine
     PRIVATE ${NLOHMANN_JSON_INCLUDE_DIR} ${SHERPA_INCLUDE_DIRS})
 
 target_link_libraries(voice_engine PRIVATE ${SHERPA_LINK_LIBS})
+if(APPLE)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox REQUIRED)
+    target_link_libraries(voice_engine PRIVATE ${COREFOUNDATION_FRAMEWORK} ${AUDIOTOOLBOX_FRAMEWORK})
+endif()
 if(SHERPA_LINK_OPTIONS)
     target_link_options(voice_engine PRIVATE ${SHERPA_LINK_OPTIONS})
 endif()

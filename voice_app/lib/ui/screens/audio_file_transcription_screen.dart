@@ -65,6 +65,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
   final AsrService _asr = AsrService();
   NmtBackend? _nmtBackend;
   late final AudioPlayer _audioPlayer;
+  final ScrollController _subtitlesScrollController = ScrollController();
 
   // Model Lists
   List<ModelInfo> _allAsrModels = [];
@@ -100,8 +101,20 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
   Duration _playbackDuration = Duration.zero;
 
   // Performance / Stats
-  double? _processingTimeSec;
-  double? _rtf;
+  double? _asrTimeSec;
+  double? _asrRtf;
+  double? _translationTimeSec;
+  double? _translationRtf;
+  int _totalTranslationTokens = 0;
+  double? _translationTokensPerSec;
+
+  double _asrProgress = 0.0;
+  double _translationProgress = 0.0;
+  int _totalSegmentsCount = 0;
+  int _translatedSegmentsCount = 0;
+  final List<Future<void>> _translationFutures = [];
+  Stopwatch? _processingStopwatch;
+  String _partialText = "";
 
   @override
   void initState() {
@@ -142,6 +155,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     ModelManager.changeNotifier.removeListener(_loadModels);
     _deinitializeAll();
     _audioPlayer.dispose();
+    _subtitlesScrollController.dispose();
     super.dispose();
   }
 
@@ -238,7 +252,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['wav'],
+        allowedExtensions: ['wav', 'mp3', 'm4a', 'aac', 'mp4', 'mov', 'm4v'],
       );
 
       if (result != null && result.files.single.path != null) {
@@ -249,33 +263,38 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
           _processProgress = 0.0;
         });
 
-        // Initialize sherpa_onnx bindings to read wave
-        sherpa_onnx.initBindings();
-        final waveData = sherpa_onnx.readWave(path);
+        // Initialize FFI bindings
+        await VoiceEngineBridge.init();
+        final decodedSamples = VoiceEngineBridge.instance.decodeAudioFile(path);
 
-        if (waveData.samples.isEmpty) {
-          throw Exception("Could not read WAV file or file is empty.");
-        }
-
-        Float32List processedSamples = waveData.samples;
-        if (waveData.sampleRate != 16000) {
-          processedSamples = _resample(waveData.samples, waveData.sampleRate, 16000);
+        if (decodedSamples == null || decodedSamples.isEmpty) {
+          throw Exception("Could not read/decode audio file or file is empty.");
         }
 
         setState(() {
           _selectedFilePath = path;
           _selectedFileName = result.files.single.name;
-          _fileSampleSize = processedSamples.length;
-          _fileSampleRate = waveData.sampleRate;
-          _fileDuration = processedSamples.length / 16000.0;
-          _audioSamples = processedSamples;
+          _fileSampleSize = decodedSamples.length;
+          _fileSampleRate = 16000; // Audotoolbox natively resampled to 16kHz mono
+          _fileDuration = decodedSamples.length / 16000.0;
+          _audioSamples = decodedSamples;
           _isProcessing = false;
           _subtitles = [];
+          _asrProgress = 0.0;
+          _translationProgress = 0.0;
+          _totalSegmentsCount = 0;
+          _translatedSegmentsCount = 0;
+          _asrTimeSec = null;
+          _asrRtf = null;
+          _translationTimeSec = null;
+          _translationRtf = null;
+          _totalTranslationTokens = 0;
+          _translationTokensPerSec = null;
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Loaded WAV file: $_selectedFileName (${_fileDuration!.toStringAsFixed(1)}s, ${waveData.sampleRate}Hz)'),
+            content: Text('Loaded & decoded media file: $_selectedFileName (${_fileDuration!.toStringAsFixed(1)}s, 16kHz mono)'),
             backgroundColor: Colors.green,
           ),
         );
@@ -323,13 +342,21 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
 
     setState(() {
       _isProcessing = true;
-      _processProgress = 0.0;
+      _asrProgress = 0.0;
+      _translationProgress = 0.0;
+      _totalSegmentsCount = 0;
+      _translatedSegmentsCount = 0;
+      _totalTranslationTokens = 0;
+      _translationFutures.clear();
       _subtitles = [];
-      _processingTimeSec = null;
-      _rtf = null;
+      _asrTimeSec = null;
+      _asrRtf = null;
+      _translationTimeSec = null;
+      _translationRtf = null;
+      _translationTokensPerSec = null;
     });
 
-    final stopwatch = Stopwatch()..start();
+    _processingStopwatch = Stopwatch()..start();
 
     try {
       // 1. Initialize ASR engine
@@ -368,6 +395,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       int chunkCount = (totalSamples / chunkSize).ceil();
       int currentIdx = 0;
 
+      int lastProgressPercent = -1;
       for (int i = 0; i < totalSamples; i += chunkSize) {
         if (!mounted || !_isProcessing) break;
 
@@ -379,13 +407,29 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
 
         await _handlePollResult(pollResult);
 
-        currentIdx++;
-        setState(() {
-          _processProgress = currentIdx / chunkCount;
-        });
+        // Update real-time partial transcription
+        if (pollResult.partial != _partialText) {
+          setState(() {
+            _partialText = pollResult.partial;
+          });
+        }
 
-        // Yield to the event loop so the UI is updated and doesn't freeze
-        await Future.delayed(Duration.zero);
+        currentIdx++;
+
+        // 1. Throttle progress updates to avoid too many rebuilds
+        final progress = currentIdx / chunkCount;
+        final progressPercent = (progress * 100).round();
+        if (progressPercent != lastProgressPercent) {
+          lastProgressPercent = progressPercent;
+          setState(() {
+            _asrProgress = progress;
+          });
+        }
+
+        // 2. Yield to the event loop every 5 chunks (500ms of audio) instead of every chunk
+        if (currentIdx % 5 == 0) {
+          await Future.delayed(const Duration(milliseconds: 1));
+        }
       }
 
       // Flush VAD tail
@@ -394,14 +438,34 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
         await _handlePollResult(lastPoll);
       }
 
-      stopwatch.stop();
+      // ASR completed!
+      final double asrElapsed = _processingStopwatch!.elapsedMilliseconds / 1000.0;
+      setState(() {
+        _asrProgress = 1.0;
+        _asrTimeSec = asrElapsed;
+        _partialText = ""; // Clear partial text when ASR completes
+        if (_fileDuration != null && _fileDuration! > 0) {
+          _asrRtf = _asrTimeSec! / _fileDuration!;
+        }
+      });
+
+      // Await all background translations to complete
+      if (_enableTranslation && _translationFutures.isNotEmpty) {
+        await Future.wait(_translationFutures);
+      }
+
+      _processingStopwatch!.stop();
+      final double totalElapsed = _processingStopwatch!.elapsedMilliseconds / 1000.0;
 
       setState(() {
         _isProcessing = false;
-        _processProgress = 1.0;
-        _processingTimeSec = stopwatch.elapsedMilliseconds / 1000.0;
+        _translationProgress = 1.0;
+        _translationTimeSec = totalElapsed;
         if (_fileDuration != null && _fileDuration! > 0) {
-          _rtf = _processingTimeSec! / _fileDuration!;
+          _translationRtf = _translationTimeSec! / _fileDuration!;
+        }
+        if (_totalTranslationTokens > 0 && _translationTimeSec! > 0) {
+          _translationTokensPerSec = _totalTranslationTokens / _translationTimeSec!;
         }
       });
 
@@ -412,7 +476,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
         ),
       );
     } catch (e) {
-      stopwatch.stop();
+      _processingStopwatch?.stop();
       setState(() => _isProcessing = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -444,36 +508,98 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
 
       if (_enableTranslation && _nmtBackend != null) {
         final subIndex = _subtitles.length - 1;
-        // Translate asynchronously
-        _translateSegment(subIndex, text);
+        _totalSegmentsCount++;
+        final future = _translateSegment(subIndex, text);
+        _translationFutures.add(future);
       }
     }
   }
 
-  void _translateSegment(int index, String text) async {
+  Future<void> _translateSegment(int index, String text) async {
     try {
       final Stream<String> translationStream = _nmtBackend!.translateStream(text);
+      String lastResult = "";
+      int lastUpdateMs = 0;
+
       await for (final partial in translationStream) {
-        if (!mounted) return;
-        setState(() {
-          if (index < _subtitles.length) {
-            _subtitles[index].translatedText = partial.trim();
+        lastResult = partial;
+
+        // Throttle UI updates to at most once per 100ms to prevent frame drops
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - lastUpdateMs > 100) {
+          lastUpdateMs = now;
+          if (mounted) {
+            setState(() {
+              if (index < _subtitles.length) {
+                _subtitles[index].translatedText = lastResult.trim();
+              }
+            });
           }
-        });
+        }
       }
+      if (!mounted) return;
+
+      final timing = _nmtBackend!.lastStreamTiming;
+      if (timing != null) {
+        _totalTranslationTokens += timing.decoderTokens;
+      }
+
+      setState(() {
+        if (index < _subtitles.length) {
+          _subtitles[index].translatedText = lastResult.trim();
+        }
+        _translatedSegmentsCount++;
+        
+        double translatedDuration = 0.0;
+        for (final seg in _subtitles) {
+          if (seg.translatedText.isNotEmpty) {
+            translatedDuration += (seg.end - seg.start);
+          }
+        }
+        if (_fileDuration != null && _fileDuration! > 0) {
+          _translationProgress = (translatedDuration / _fileDuration!).clamp(0.0, 1.0);
+        }
+
+        if (_processingStopwatch != null) {
+          final double elapsed = _processingStopwatch!.elapsedMilliseconds / 1000.0;
+          if (elapsed > 0) {
+            _translationTokensPerSec = _totalTranslationTokens / elapsed;
+          }
+        }
+      });
     } catch (e) {
       debugPrint("Translation error for segment $index: $e");
       if (mounted && index < _subtitles.length) {
         setState(() {
           _subtitles[index].translatedText = "[Translation Error: $e]";
+          _translatedSegmentsCount++;
+          
+          double translatedDuration = 0.0;
+          for (final seg in _subtitles) {
+            if (seg.translatedText.isNotEmpty) {
+              translatedDuration += (seg.end - seg.start);
+            }
+          }
+          if (_fileDuration != null && _fileDuration! > 0) {
+            _translationProgress = (translatedDuration / _fileDuration!).clamp(0.0, 1.0);
+          }
+
+          if (_processingStopwatch != null) {
+            final double elapsed = _processingStopwatch!.elapsedMilliseconds / 1000.0;
+            if (elapsed > 0) {
+              _translationTokensPerSec = _totalTranslationTokens / elapsed;
+            }
+          }
         });
       }
     }
   }
 
   void _stopProcessing() {
+    _processingStopwatch?.stop();
     setState(() {
       _isProcessing = false;
+      _partialText = ""; // Clear partial text on stop
     });
   }
 
@@ -553,7 +679,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                     const SizedBox(height: 16),
 
                     // --- Stats / Metrics (If completed) ---
-                    if (_processingTimeSec != null) ...[
+                    if (_asrTimeSec != null) ...[
                       _buildStatsCard(),
                       const SizedBox(height: 16),
                     ],
@@ -830,7 +956,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
           value: value,
           isExpanded: true,
           icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey),
-          items: supportedLanguages.map((lang) {
+          items: LanguageManager.languages.map((lang) {
             return DropdownMenuItem<String>(
               value: lang,
               child: Text(
@@ -855,7 +981,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             const Text(
-              'Audio File Source',
+              'Media File Source (Audio/Video)',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.black87),
             ),
             const SizedBox(height: 12),
@@ -868,7 +994,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                 ),
                 onPressed: _pickAudioFile,
                 icon: const Icon(Icons.audio_file_rounded),
-                label: const Text('Pick 16kHz WAV Audio File'),
+                label: const Text('Pick Media File (WAV, MP3, MP4, MOV, etc.)'),
               )
             else
               Container(
@@ -903,13 +1029,18 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                       icon: const Icon(Icons.close_rounded, color: Colors.grey),
                       onPressed: () {
                         setState(() {
-                          _selectedFilePath = null;
-                          _selectedFileName = null;
-                          _fileSampleSize = null;
-                          _fileSampleRate = null;
-                          _fileDuration = null;
-                          _audioSamples = null;
-                          _subtitles = [];
+                          _asrProgress = 0.0;
+                          _translationProgress = 0.0;
+                          _totalSegmentsCount = 0;
+                          _translatedSegmentsCount = 0;
+                          _asrTimeSec = null;
+                          _asrRtf = null;
+                          _translationTimeSec = null;
+                          _translationRtf = null;
+                          _totalTranslationTokens = 0;
+                          _translationTokensPerSec = null;
+                          _processingStopwatch = null;
+                          _partialText = "";
                         });
                       },
                     ),
@@ -920,28 +1051,71 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
             if (_selectedFileName != null) ...[
               const SizedBox(height: 16),
               if (_isProcessing) ...[
+                // ASR Progress Row
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Processing: ${(_processProgress * 100).toStringAsFixed(1)}%',
+                      'ASR Progress: ${(_asrProgress * 100).toStringAsFixed(1)}%',
                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.indigo),
                     ),
-                    const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.indigo),
-                    ),
+                    if (!_enableTranslation || _asrProgress < 1.0)
+                      const SizedBox(
+                        width: 12,
+                        height: 12,
+                        child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.indigo),
+                      )
+                    else
+                      const Icon(Icons.check_circle_rounded, color: Colors.green, size: 14),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 6),
                 LinearProgressIndicator(
-                  value: _processProgress,
+                  value: _asrProgress,
                   borderRadius: BorderRadius.circular(4),
                   backgroundColor: Colors.grey.shade200,
                   valueColor: const AlwaysStoppedAnimation<Color>(Colors.indigo),
                 ),
-                const SizedBox(height: 8),
+                
+                if (_enableTranslation) ...[
+                  const SizedBox(height: 12),
+                  // Translation Progress Row
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Translation Progress: ${(_translationProgress * 100).toStringAsFixed(1)}%',
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.teal),
+                      ),
+                      if (_translationProgress < 1.0)
+                        const SizedBox(
+                          width: 12,
+                          height: 12,
+                          child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.teal),
+                        )
+                      else
+                        const Icon(Icons.check_circle_rounded, color: Colors.green, size: 14),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Tokens: $_totalTranslationTokens  |  Speed: ${_translationTokensPerSec != null ? _translationTokensPerSec!.toStringAsFixed(1) : '0.0'} tok/s',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.purple),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  LinearProgressIndicator(
+                    value: _translationProgress,
+                    borderRadius: BorderRadius.circular(4),
+                    backgroundColor: Colors.grey.shade200,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Colors.teal),
+                  ),
+                ],
+                const SizedBox(height: 12),
                 TextButton.icon(
                   onPressed: _stopProcessing,
                   icon: const Icon(Icons.stop_circle_rounded, color: Colors.red),
@@ -972,37 +1146,99 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
+        child: Column(
           children: [
-            Column(
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('Processing Time', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 4),
-                Text('${_processingTimeSec!.toStringAsFixed(2)}s', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.indigo)),
-              ],
-            ),
-            Container(height: 24, width: 1, color: Colors.grey.shade300),
-            Column(
-              children: [
-                const Text('Audio Duration', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 4),
-                Text('${_fileDuration!.toStringAsFixed(1)}s', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-              ],
-            ),
-            Container(height: 24, width: 1, color: Colors.grey.shade300),
-            Column(
-              children: [
-                const Text('Real-time Factor (RTF)', style: TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 4),
+                const Text(
+                  'Processing Metrics',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87),
+                ),
                 Text(
-                  _rtf != null ? _rtf!.toStringAsFixed(3) : 'N/A',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                    color: (_rtf != null && _rtf! < 1.0) ? Colors.green : Colors.orange,
+                  'Audio Duration: ${_fileDuration!.toStringAsFixed(1)}s',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+            const Divider(height: 20),
+            Row(
+              children: [
+                // ASR Metrics Group
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'ASR (Speech Recognition)',
+                        style: TextStyle(fontSize: 11, color: Colors.indigo, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Time: ${_asrTimeSec != null ? _asrTimeSec!.toStringAsFixed(2) : 'N/A'}s',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'RTF: ${_asrRtf != null ? _asrRtf!.toStringAsFixed(3) : 'N/A'}',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: (_asrRtf != null && _asrRtf! < 1.0) ? Colors.green : Colors.orange,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+                Container(height: 48, width: 1, color: Colors.grey.shade200),
+                const SizedBox(width: 16),
+                // MT Metrics Group (only if translation is enabled)
+                if (_enableTranslation) ...[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'MT (Translation)',
+                          style: TextStyle(fontSize: 11, color: Colors.teal, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Time: ${_translationTimeSec != null ? _translationTimeSec!.toStringAsFixed(2) : 'N/A'}s',
+                          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Text(
+                              'RTF: ${_translationRtf != null ? _translationRtf!.toStringAsFixed(3) : 'N/A'}',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: (_translationRtf != null && _translationRtf! < 1.0) ? Colors.green : Colors.orange,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            if (_translationTokensPerSec != null)
+                              Text(
+                                '${_translationTokensPerSec!.toStringAsFixed(1)} tok/s ($_totalTranslationTokens tokens)',
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  const Expanded(
+                    child: Center(
+                      child: Text(
+                        'Translation Disabled',
+                        style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
@@ -1141,92 +1377,141 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                 ),
               )
             else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _subtitles.length,
-                itemBuilder: (context, index) {
-                  final seg = _subtitles[index];
-                  final isCurrent = _currentPlayingIndex == index;
+              Container(
+                constraints: const BoxConstraints(maxHeight: 450),
+                child: ListView.builder(
+                  controller: _subtitlesScrollController,
+                  shrinkWrap: false,
+                  physics: const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+                  itemCount: _subtitles.length,
+                  itemBuilder: (context, index) {
+                    final seg = _subtitles[index];
+                    final isCurrent = _currentPlayingIndex == index;
 
-                  return GestureDetector(
-                    onTap: () => _seekToSegment(seg),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isCurrent
-                            ? Colors.indigo.withOpacity(0.08)
-                            : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isCurrent ? Colors.indigo : Colors.grey.shade200,
-                          width: isCurrent ? 1.5 : 1,
+                    return GestureDetector(
+                      onTap: () => _seekToSegment(seg),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isCurrent
+                              ? Colors.indigo.withOpacity(0.08)
+                              : Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: isCurrent ? Colors.indigo : Colors.grey.shade200,
+                            width: isCurrent ? 1.5 : 1,
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade200,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '#${seg.index}',
+                                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  '${seg.formatTime(seg.start)} --> ${seg.formatTime(seg.end)}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: isCurrent ? Colors.indigo : Colors.grey,
+                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                const Spacer(),
+                                const Icon(Icons.play_arrow_rounded, size: 16, color: Colors.grey),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              seg.originalText,
+                              style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+                                  color: isCurrent ? Colors.indigo.shade900 : Colors.black87,
+                              ),
+                            ),
+                            if (seg.translatedText.isNotEmpty) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                seg.translatedText,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontStyle: FontStyle.italic,
+                                  color: isCurrent ? Colors.indigo.shade700 : Colors.indigo.shade400,
+                                ),
+                              ),
+                            ] else if (_enableTranslation) ...[
+                              const SizedBox(height: 4),
+                              const SizedBox(
+                                height: 10,
+                                width: 10,
+                                child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.indigo),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    );
+                  },
+                ),
+              ),
+              if (_isProcessing && _partialText.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.indigo.withOpacity(0.2),
+                      width: 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade200,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  '#${seg.index}',
-                                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '${seg.formatTime(seg.start)} --> ${seg.formatTime(seg.end)}',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isCurrent ? Colors.indigo : Colors.grey,
-                                  fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
-                                ),
-                              ),
-                              const Spacer(),
-                              const Icon(Icons.play_arrow_rounded, size: 16, color: Colors.grey),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            seg.originalText,
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
-                              color: isCurrent ? Colors.indigo.shade900 : Colors.black87,
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Colors.redAccent,
+                              shape: BoxShape.circle,
                             ),
                           ),
-                          if (seg.translatedText.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              seg.translatedText,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontStyle: FontStyle.italic,
-                                color: isCurrent ? Colors.indigo.shade700 : Colors.indigo.shade400,
-                              ),
-                            ),
-                          ] else if (_enableTranslation) ...[
-                            const SizedBox(height: 4),
-                            const SizedBox(
-                              height: 10,
-                              width: 10,
-                              child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.indigo),
-                            ),
-                          ],
+                          const SizedBox(width: 8),
+                          const Text(
+                            'Transcribing...',
+                            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.redAccent),
+                          ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _partialText,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.grey.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
           ],
         ),
       ),

@@ -407,7 +407,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     ),
                                     isDense: true,
                                   ),
-                                  items: supportedLanguages.map((lang) {
+                                  items: LanguageManager.languages.map((lang) {
                                     return DropdownMenuItem(value: lang, child: Text(lang));
                                   }).toList(),
                                   onChanged: (val) {
@@ -444,7 +444,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     ),
                                     isDense: true,
                                   ),
-                                  items: supportedLanguages.map((lang) {
+                                  items: LanguageManager.languages.map((lang) {
                                     return DropdownMenuItem(value: lang, child: Text(lang));
                                   }).toList(),
                                   onChanged: (val) {
@@ -483,7 +483,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     ),
                                     isDense: true,
                                   ),
-                                  items: supportedLanguages.map((lang) {
+                                  items: LanguageManager.languages.map((lang) {
                                     return DropdownMenuItem(value: lang, child: Text(lang));
                                   }).toList(),
                                   onChanged: (val) {

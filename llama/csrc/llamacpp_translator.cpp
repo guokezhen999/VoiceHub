@@ -287,7 +287,7 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
 
     // Find the common prefix with the last run's tokens
     size_t n_keep = 0;
-    if (config_.chat_mode || sys_prompt_cached_) {
+    if (config_.chat_mode) {
         while (n_keep < input_tokens.size() && n_keep < last_tokens_.size() &&
                input_tokens[n_keep] == last_tokens_[n_keep]) {
             n_keep++;
