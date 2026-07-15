@@ -79,6 +79,7 @@ private:
     // Cached token history from previous run to reuse KV cache
     std::vector<int32_t> last_tokens_;
     bool sys_prompt_cached_ = false;
+    size_t sys_prompt_len_ = 0;
 };
 
 #endif  // LLAMACPP_TRANSLATOR_H_

@@ -87,6 +87,7 @@ bool LlamaTranslator::Init(const LlamaConfig& config) {
     ctx_params.n_ctx   = config_.n_ctx;
     ctx_params.n_batch = config_.n_batch;
     ctx_params.n_ubatch = config_.n_batch;
+    ctx_params.n_seq_max = 2; // Support parallel sequences for static KV cache injection
 
     ctx_ = llama_init_from_model(model_, ctx_params);
     if (!ctx_) {
@@ -287,20 +288,82 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
 
     // Find the common prefix with the last run's tokens
     size_t n_keep = 0;
-    if (config_.chat_mode) {
+
+    if (!config_.chat_mode) {
+        // ---- Translation Mode: Static Prefix Caching (KV Cache Injection) ----
+        size_t sys_len = last_tokens_.size();
+
+        if (sys_len > 0 && input_tokens.size() >= sys_len) {
+            // Check if the input_tokens starts with the system prompt
+            bool match = true;
+            for (size_t i = 0; i < sys_len; ++i) {
+                if (input_tokens[i] != last_tokens_[i]) {
+                    match = false;
+                    break;
+                }
+            }
+
+            if (match) {
+                if (!sys_prompt_cached_) {
+                    // 1. First run: clear context, decode the system prompt on sequence 1
+                    llama_memory_clear(llama_get_memory(ctx_), true);
+
+                    // Decode system prompt tokens on sequence 1
+                    llama_batch batch = llama_batch_init(static_cast<int32_t>(sys_len), 0, 1);
+                    batch.n_tokens = static_cast<int32_t>(sys_len);
+                    for (size_t i = 0; i < sys_len; ++i) {
+                        batch.token[i] = last_tokens_[i];
+                        batch.pos[i]   = static_cast<llama_pos>(i);
+                        batch.n_seq_id[i] = 1;
+                        batch.seq_id[i][0] = 1;
+                        batch.logits[i] = false;
+                    }
+
+                    if (llama_decode(ctx_, batch) != 0) {
+                        std::fprintf(stderr, "ERROR: failed to precompute system prompt KV cache\n");
+                        std::fflush(stderr);
+                    } else {
+                        sys_prompt_cached_ = true;
+                        sys_prompt_len_ = sys_len;
+                        std::fprintf(stderr, "KV cache precompute: successfully cached %zu system prompt tokens on sequence 1\n", sys_len);
+                        std::fflush(stderr);
+                    }
+                    llama_batch_free(batch);
+                }
+
+                if (sys_prompt_cached_) {
+                    // 2. Clear sequence 0 (where translation runs)
+                    llama_memory_seq_rm(llama_get_memory(ctx_), 0, 0, -1);
+
+                    // 3. Inject (copy) cached system prompt from sequence 1 to sequence 0
+                    llama_memory_seq_cp(llama_get_memory(ctx_), 1, 0, 0, -1);
+
+                    // 4. We keep the cached tokens (length = sys_prompt_len_)
+                    n_keep = sys_prompt_len_;
+                    
+                    std::fprintf(stderr, "KV cache injection: injected %zu precomputed system prompt tokens from seq 1 to seq 0\n", sys_prompt_len_);
+                    std::fflush(stderr);
+                }
+            }
+        }
+    } else {
+        // ---- Chat Mode: Standard Dynamic Cache Reuse ----
         while (n_keep < input_tokens.size() && n_keep < last_tokens_.size() &&
                input_tokens[n_keep] == last_tokens_[n_keep]) {
             n_keep++;
         }
     }
 
-    if (n_keep > 0) {
-        // Clear KV cache starting from the mismatch point
-        llama_memory_seq_rm(llama_get_memory(ctx_), 0, static_cast<llama_pos>(n_keep), -1);
-    } else {
-        // Clear all KV cache
+    if (!config_.chat_mode && !sys_prompt_cached_) {
+        // Fallback: Clear all KV cache if static prefix caching failed or not matched
         llama_memory_clear(llama_get_memory(ctx_), true);
-        sys_prompt_cached_ = false;
+    } else if (config_.chat_mode) {
+        if (n_keep > 0) {
+            llama_memory_seq_rm(llama_get_memory(ctx_), 0, static_cast<llama_pos>(n_keep), -1);
+        } else {
+            llama_memory_clear(llama_get_memory(ctx_), true);
+            sys_prompt_cached_ = false;
+        }
     }
 
     std::fprintf(stderr, "KV cache reuse: kept %zu tokens out of %zu input tokens (last run had %zu tokens)\n",
@@ -334,7 +397,9 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
             }
             llama_batch_free(batch);
         }
-        sys_prompt_cached_ = true;
+        if (config_.chat_mode) {
+            sys_prompt_cached_ = true;
+        }
     }
 
     auto t_prompt_end = std::chrono::high_resolution_clock::now();
