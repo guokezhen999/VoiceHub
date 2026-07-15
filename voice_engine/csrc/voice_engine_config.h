@@ -19,6 +19,8 @@ struct VoiceEngineConfig {
   std::string model_type;                  // e.g. "zipformer2"
   std::string decoding_method = "greedy_search";
   int32_t num_threads = 1;
+  std::string provider = "cpu";
+  bool debug = true;
 
   // VAD (silero)
   std::string vad_model;

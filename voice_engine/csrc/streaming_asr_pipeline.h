@@ -63,9 +63,15 @@ class StreamingAsrPipeline {
   int32_t pre_speech_size_ = 0;
   bool vad_ever_detected_ = false;
 
+  struct FinalizedSegment {
+    std::string text;
+    double start_sec;
+    double end_sec;
+  };
+
   // Result state.
   std::string partial_;
-  std::deque<std::string> finalized_;
+  std::deque<FinalizedSegment> finalized_;
   bool speaking_ = false;
 
   std::string last_error_;

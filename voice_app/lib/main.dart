@@ -10,6 +10,7 @@ import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/llama_nmt_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
+import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -376,6 +377,45 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ],
                               ),
                               body: CascadeTranslationScreen(showPerfMetrics: showPerfMetrics),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Full-width Audio File Transcription card
+              SizedBox(
+                height: 95,
+                width: double.infinity,
+                child: GridMenuCard(
+                  title: 'Audio File Subtitles (音频文件转录翻译)',
+                  description: 'Transcribe audio files & translate to timestamped subtitles',
+                  icon: Icons.subtitles_rounded,
+                  gradientColors: const [Color(0xFF8E2DE2), Color(0xFF4A00E0)],
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ValueListenableBuilder<bool>(
+                          valueListenable: MyHomePage.showPerfMetricsNotifier,
+                          builder: (context, showPerfMetrics, _) {
+                            return Scaffold(
+                              appBar: AppBar(
+                                title: const Text('Audio File Transcription'),
+                                centerTitle: true,
+                                actions: [
+                                  IconButton(
+                                    icon: const Icon(Icons.settings_outlined),
+                                    onPressed: () => showSettingsBottomSheet(context),
+                                    tooltip: 'Settings',
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ),
+                              body: AudioFileTranscriptionScreen(showPerfMetrics: showPerfMetrics),
                             );
                           },
                         ),

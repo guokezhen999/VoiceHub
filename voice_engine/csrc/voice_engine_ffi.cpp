@@ -52,6 +52,8 @@ VoiceEngineHandle* voice_engine_create(const char* json_config) {
     cfg.model_type = j.value("model_type", "");
     cfg.decoding_method = j.value("decoding_method", "greedy_search");
     cfg.num_threads = j.value("num_threads", 1);
+    cfg.provider = j.value("provider", "cpu");
+    cfg.debug = j.value("debug", true);
 
     if (j.contains("vad")) {
       const auto& v = j["vad"];

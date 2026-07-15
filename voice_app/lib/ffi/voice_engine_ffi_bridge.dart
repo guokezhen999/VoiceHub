@@ -55,22 +55,39 @@ typedef _FreeStringDart = void Function(Pointer<Utf8> str);
 typedef _LastErrorNative = Pointer<Utf8> Function();
 typedef _LastErrorDart = Pointer<Utf8> Function();
 
+class VoiceEngineSegment {
+  final String text;
+  final double start;
+  final double end;
+
+  const VoiceEngineSegment({
+    required this.text,
+    required this.start,
+    required this.end,
+  });
+
+  @override
+  String toString() => 'VoiceEngineSegment(text="$text", start=$start, end=$end)';
+}
+
 /// Parsed result of voice_engine_poll().
 class VoiceEnginePollResult {
   final bool speaking;
   final String partial;
   final List<String> finalized;
+  final List<VoiceEngineSegment> segments;
 
   const VoiceEnginePollResult({
     required this.speaking,
     required this.partial,
     required this.finalized,
+    required this.segments,
   });
 
   @override
   String toString() =>
       'VoiceEnginePollResult(speaking=$speaking, partial="$partial", '
-      'finalized=${finalized.length})';
+      'finalized=${finalized.length}, segments=${segments.length})';
 }
 
 /// Low-level FFI bindings to the voice_engine shared library.
@@ -187,7 +204,7 @@ class VoiceEngineBridge {
     final resultPtr = _poll(handle);
     if (resultPtr == nullptr) {
       return const VoiceEnginePollResult(
-          speaking: false, partial: '', finalized: []);
+          speaking: false, partial: '', finalized: [], segments: []);
     }
     final jsonStr = resultPtr.toDartString();
     _freeString(resultPtr);
@@ -201,14 +218,28 @@ class VoiceEngineBridge {
           finalized.add(s.toString());
         }
       }
+      final segRaw = j['segments'];
+      final segments = <VoiceEngineSegment>[];
+      if (segRaw is List) {
+        for (final s in segRaw) {
+          if (s is Map) {
+            segments.add(VoiceEngineSegment(
+              text: (s['text'] ?? '').toString(),
+              start: (s['start'] ?? 0.0).toDouble(),
+              end: (s['end'] ?? 0.0).toDouble(),
+            ));
+          }
+        }
+      }
       return VoiceEnginePollResult(
         speaking: j['speaking'] == true,
         partial: (j['partial'] ?? '').toString(),
         finalized: finalized,
+        segments: segments,
       );
     } catch (_) {
       return const VoiceEnginePollResult(
-          speaking: false, partial: '', finalized: []);
+          speaking: false, partial: '', finalized: [], segments: []);
     }
   }
 

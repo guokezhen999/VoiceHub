@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:record/record.dart';
@@ -92,6 +93,8 @@ class AsrService {
     final sileroModelPath = await ModelManager.ensureSileroVad();
     isOfflineModel = !model.isStreamingASR;
 
+    final provider = (Platform.isMacOS || Platform.isIOS) ? 'coreml' : 'cpu';
+
     final config = {
       'mode': isOfflineModel ? 'offline' : 'online',
       'encoder': model.asrEncoderPath!,
@@ -101,6 +104,8 @@ class AsrService {
       'model_type': 'zipformer2',
       'decoding_method': 'greedy_search',
       'num_threads': 1,
+      'provider': provider,
+      'debug': true,
       'vad': {
         'model': sileroModelPath,
         'threshold': 0.5,

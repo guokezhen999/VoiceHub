@@ -346,7 +346,9 @@ Ort::SessionOptions GetSessionOptionsImpl(
     case Provider::kCoreML: {
 #if defined(__APPLE__) && (ORT_API_VERSION >= 15) && \
     !defined(SHERPA_ONNX_DISABLE_COREML)
-      uint32_t coreml_flags = 0;
+      // 0x002: COREML_FLAG_ENABLE_ON_SUBGRAPH
+      // 0x008: COREML_FLAG_CREATE_MLPROGRAM (introduced in ORT 1.15+)
+      uint32_t coreml_flags = 0x002 | 0x008;
       (void)OrtSessionOptionsAppendExecutionProvider_CoreML(sess_opts,
                                                             coreml_flags);
 #else

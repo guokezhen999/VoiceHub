@@ -92,6 +92,7 @@ class TtsService {
       }
     }
 
+    final provider = (Platform.isMacOS || Platform.isIOS) ? 'coreml' : 'cpu';
     final sherpa_onnx.OfflineTtsModelConfig modelConfig;
 
     if (isSplit && model.ttsEngineType == 'matcha') {
@@ -105,6 +106,7 @@ class TtsService {
       modelConfig = sherpa_onnx.OfflineTtsModelConfig(
         numThreads: 2,
         matcha: matcha,
+        provider: provider,
       );
     } else if (isSplit && model.ttsEngineType == 'vits_online') {
       // Pass directory path so C++ auto-detection (offline-tts-impl.cc)
@@ -119,6 +121,7 @@ class TtsService {
       modelConfig = sherpa_onnx.OfflineTtsModelConfig(
         numThreads: 2,
         vits: vits,
+        provider: provider,
       );
     } else {
       final modelPath = model.ttsModelPath ?? '';
@@ -136,6 +139,7 @@ class TtsService {
       modelConfig = sherpa_onnx.OfflineTtsModelConfig(
         numThreads: 2,
         vits: vits,
+        provider: provider,
       );
     }
 

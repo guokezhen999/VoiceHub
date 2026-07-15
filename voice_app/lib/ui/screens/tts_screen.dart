@@ -131,11 +131,13 @@ class _TtsScreenState extends State<TtsScreen> {
         _isConfigExpanded = false;
       });
 
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('TTS Engine initialized: ${_selectedModel!.name}')),
       );
     } catch (e) {
       debugPrint('TTS Init Error: $e');
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to initialize TTS: $e')),
       );

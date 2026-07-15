@@ -47,17 +47,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
     message(STATUS "iOS onnxruntime lib:      ${ONNXRUNTIME_LIB}")
     message(STATUS "iOS onnxruntime include:  ${ONNXRUNTIME_INCLUDE_DIR}")
 
-    # sherpa-onnx static archive references vDSP/BLAS (Accelerate) and
-    # CoreFoundation. Resolve them via find_library so they link by full path
+    # sherpa-onnx static archive references vDSP/BLAS (Accelerate),
+    # CoreFoundation, and CoreML. Resolve them via find_library so they link by full path
     # (avoids the `-framework X` token-splitting gotcha in target_link_options).
     find_library(ACCELERATE_FRAMEWORK Accelerate REQUIRED)
     find_library(COREFOUNDATION_FRAMEWORK CoreFoundation REQUIRED)
+    find_library(COREML_FRAMEWORK CoreML REQUIRED)
 
     set(SHERPA_LINK_LIBS
         ${SHERPA_ONNX_LIB}
         ${ONNXRUNTIME_LIB}
         ${ACCELERATE_FRAMEWORK}
-        ${COREFOUNDATION_FRAMEWORK})
+        ${COREFOUNDATION_FRAMEWORK}
+        ${COREML_FRAMEWORK})
     set(SHERPA_INCLUDE_DIRS ${SHERPA_ONNX_INCLUDE_DIR} ${ONNXRUNTIME_INCLUDE_DIR})
     set(SHERPA_LINK_OPTIONS "")
 else()

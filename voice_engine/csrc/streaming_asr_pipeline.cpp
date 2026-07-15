@@ -102,8 +102,8 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
     cfg.model_config.transducer.joiner = config_.joiner.c_str();
     cfg.model_config.tokens = config_.tokens.c_str();
     cfg.model_config.num_threads = config_.num_threads;
-    cfg.model_config.provider = "cpu";
-    cfg.model_config.debug = 0;
+    cfg.model_config.provider = config_.provider.c_str();
+    cfg.model_config.debug = config_.debug ? 1 : 0;
     cfg.model_config.model_type = config_.model_type.c_str();
     cfg.decoding_method = config_.decoding_method.c_str();
     cfg.enable_endpoint = config_.enable_endpoint ? 1 : 0;
@@ -132,8 +132,8 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
     cfg.model_config.transducer.joiner = config_.joiner.c_str();
     cfg.model_config.tokens = config_.tokens.c_str();
     cfg.model_config.num_threads = config_.num_threads;
-    cfg.model_config.provider = "cpu";
-    cfg.model_config.debug = 0;
+    cfg.model_config.provider = config_.provider.c_str();
+    cfg.model_config.debug = config_.debug ? 1 : 0;
     cfg.model_config.model_type = config_.model_type.c_str();
     cfg.decoding_method = config_.decoding_method.c_str();
     cfg.rule_fsts = "";
@@ -187,6 +187,8 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
 
       // A completed VAD segment signals utterance end: finalize + reset stream.
       while (!SherpaOnnxVoiceActivityDetectorEmpty(vad_)) {
+        const SherpaOnnxSpeechSegment* seg =
+            SherpaOnnxVoiceActivityDetectorFront(vad_);
         SherpaOnnxVoiceActivityDetectorPop(vad_);
 
         while (SherpaOnnxIsOnlineStreamReady(online_recognizer_, online_stream_)) {
@@ -199,7 +201,18 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
         pre_speech_.clear();
         pre_speech_size_ = 0;
 
-        if (!final_text.empty()) finalized_.push_back(final_text);
+        if (!final_text.empty()) {
+          double start_sec = 0.0;
+          double end_sec = 0.0;
+          if (seg) {
+            start_sec = seg->start / static_cast<double>(kSampleRate);
+            end_sec = (seg->start + seg->n) / static_cast<double>(kSampleRate);
+          }
+          finalized_.push_back({final_text, start_sec, end_sec});
+        }
+        if (seg) {
+          SherpaOnnxDestroySpeechSegment(seg);
+        }
         partial_.clear();
       }
 
@@ -241,9 +254,13 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
       if (r) SherpaOnnxDestroyOfflineRecognizerResult(r);
 
       SherpaOnnxDestroyOfflineStream(stream);
-      SherpaOnnxDestroySpeechSegment(seg);
 
-      if (!text.empty()) finalized_.push_back(text);
+      if (!text.empty()) {
+        double start_sec = seg->start / static_cast<double>(kSampleRate);
+        double end_sec = (seg->start + seg->n) / static_cast<double>(kSampleRate);
+        finalized_.push_back({text, start_sec, end_sec});
+      }
+      SherpaOnnxDestroySpeechSegment(seg);
     }
   }
 }
@@ -257,6 +274,8 @@ void StreamingAsrPipeline::Flush() {
   if (config_.mode == AsrMode::kOnline) {
     if (!online_recognizer_ || !online_stream_) return;
     while (!SherpaOnnxVoiceActivityDetectorEmpty(vad_)) {
+      const SherpaOnnxSpeechSegment* seg =
+          SherpaOnnxVoiceActivityDetectorFront(vad_);
       SherpaOnnxVoiceActivityDetectorPop(vad_);
 
       while (SherpaOnnxIsOnlineStreamReady(online_recognizer_, online_stream_)) {
@@ -269,7 +288,18 @@ void StreamingAsrPipeline::Flush() {
       pre_speech_.clear();
       pre_speech_size_ = 0;
 
-      if (!final_text.empty()) finalized_.push_back(final_text);
+      if (!final_text.empty()) {
+        double start_sec = 0.0;
+        double end_sec = 0.0;
+        if (seg) {
+          start_sec = seg->start / static_cast<double>(kSampleRate);
+          end_sec = (seg->start + seg->n) / static_cast<double>(kSampleRate);
+        }
+        finalized_.push_back({final_text, start_sec, end_sec});
+      }
+      if (seg) {
+        SherpaOnnxDestroySpeechSegment(seg);
+      }
       partial_.clear();
     }
   } else {
@@ -291,9 +321,13 @@ void StreamingAsrPipeline::Flush() {
       if (r) SherpaOnnxDestroyOfflineRecognizerResult(r);
 
       SherpaOnnxDestroyOfflineStream(stream);
-      SherpaOnnxDestroySpeechSegment(seg);
 
-      if (!text.empty()) finalized_.push_back(text);
+      if (!text.empty()) {
+        double start_sec = seg->start / static_cast<double>(kSampleRate);
+        double end_sec = (seg->start + seg->n) / static_cast<double>(kSampleRate);
+        finalized_.push_back({text, start_sec, end_sec});
+      }
+      SherpaOnnxDestroySpeechSegment(seg);
     }
   }
 }
@@ -316,12 +350,22 @@ std::string StreamingAsrPipeline::PollJson() {
   j["speaking"] = speaking_;
   j["partial"] = partial_;
   std::vector<std::string> out;
+  nlohmann::json segments = nlohmann::json::array();
   out.reserve(finalized_.size());
   while (!finalized_.empty()) {
-    out.push_back(std::move(finalized_.front()));
+    const auto& seg = finalized_.front();
+    out.push_back(seg.text);
+
+    nlohmann::json s;
+    s["text"] = seg.text;
+    s["start"] = seg.start_sec;
+    s["end"] = seg.end_sec;
+    segments.push_back(s);
+
     finalized_.pop_front();
   }
   j["finalized"] = out;
+  j["segments"] = segments;
   return j.dump();
 }
 
