@@ -421,7 +421,7 @@ open ios/Runner.xcworkspace
 **方式 B — 使用 `ideviceinstaller`:**
 ```bash
 brew install ideviceinstaller
-ideviceinstaller -i build/ios/ipa/Runner.ipa
+ideviceinstaller install build/ios/ipa/voice_app.ipa
 ```
 
 ---

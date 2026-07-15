@@ -5,6 +5,8 @@
 
 import 'dart:isolate';
 
+import 'model_manager.dart';
+
 /// Structured result from NMT translation, including timing metrics.
 class TranslationResult {
   final String text;
@@ -115,3 +117,43 @@ class NmtStreamToken {
   const NmtStreamToken(this.text);
 }
 
+
+// ============================================================================
+// NmtBackend — unified interface for all NMT service implementations.
+// ============================================================================
+
+/// Abstract interface shared by [NativeNmtService] (Opus-MT / Marian ONNX)
+/// and [LlamaNmtService] (llama.cpp GGUF).
+///
+/// Both services expose the same surface:
+///   - [isLoaded]          — whether a model is currently loaded and ready.
+///   - [loadModel]         — load (or hot-swap) a model.  The [sourceLang] /
+///                           [targetLang] params are only used by the Llama
+///                           backend; the Marian backend ignores them.
+///   - [translateStream]   — stream partial tokens, completes when done.
+///   - [lastStreamTiming]  — timing metrics from the most-recent stream call.
+///   - [release]           — tear down the background isolate / free memory.
+abstract class NmtBackend {
+  /// Whether a model has been successfully loaded and is ready to translate.
+  bool get isLoaded;
+
+  /// Load [model].  For the Llama backend, pass [sourceLang] / [targetLang]
+  /// so the prompt can be constructed correctly; for the Marian backend these
+  /// parameters are ignored.
+  Future<void> loadModel(
+    ModelInfo model, {
+    String? sourceLang,
+    String? targetLang,
+  });
+
+  /// Translate [text] with per-token streaming.  Yields cumulative partial
+  /// output after each token; the stream closes when translation is complete.
+  Stream<String> translateStream(String text);
+
+  /// Timing / performance metrics from the most-recent [translateStream] call.
+  /// Returns `null` before any translation has been performed.
+  TranslationResult? get lastStreamTiming;
+
+  /// Release the loaded model and free all associated resources.
+  void release();
+}

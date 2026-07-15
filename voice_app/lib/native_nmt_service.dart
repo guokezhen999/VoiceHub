@@ -22,7 +22,7 @@ import 'nmt_service_common.dart';
 ///   await svc.loadModel(modelInfo);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
-class NativeNmtService {
+class NativeNmtService implements NmtBackend {
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -31,6 +31,7 @@ class NativeNmtService {
 
   ModelInfo? _currentModel;
 
+  @override
   bool get isLoaded => _worker != null;
   ModelInfo? get currentModel => _currentModel;
 
@@ -40,8 +41,14 @@ class NativeNmtService {
   }
 
   /// Load a opus-mt model from [modelInfo] in a background isolate.
+  ///
+  /// [sourceLang] and [targetLang] are accepted for interface compatibility
+  /// but are not used by the Marian ONNX backend.
+  @override
   Future<void> loadModel(
     ModelInfo modelInfo, {
+    String? sourceLang,   // unused — Marian selects lang from model dir
+    String? targetLang,   // unused — Marian selects lang from model dir
     int maxLength = 512,
     int numThreads = 4,
   }) async {
@@ -127,6 +134,7 @@ class NativeNmtService {
   }
 
   /// Release the loaded model and terminate the background isolate.
+  @override
   Future<void> release() async {
     if (_workerSendPort != null) {
       try {
@@ -147,6 +155,7 @@ class NativeNmtService {
   /// Returns a [Stream] that yields cumulative partial translation text
   /// after each decoder token. When the stream is done, call
   /// [lastStreamTiming] to get the performance metrics.
+  @override
   Stream<String> translateStream(String text) {
     if (_workerSendPort == null) {
       throw Exception('Native NMT model not loaded. Call loadModel() first.');
@@ -188,6 +197,7 @@ class NativeNmtService {
 
   /// The timing result from the most recent [translateStream] call.
   TranslationResult? _lastStreamResult;
+  @override
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
 }

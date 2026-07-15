@@ -173,8 +173,12 @@ class OfflineTtsMatchaModel::Impl {
     SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.jieba, "jieba", 0);
     SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.has_espeak, "has_espeak",
                                             0);
-    SHERPA_ONNX_READ_META_DATA(meta_data_.use_eos_bos, "use_eos_bos");
-    SHERPA_ONNX_READ_META_DATA(meta_data_.pad_id, "pad_id");
+    // use_eos_bos / pad_id are optional; some models (e.g. piper vits loaded
+    // through the matcha path) don't carry these keys. Default instead of
+    // _Exit(-1) so init completes.
+    SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.use_eos_bos, "use_eos_bos",
+                                            1);
+    SHERPA_ONNX_READ_META_DATA_WITH_DEFAULT(meta_data_.pad_id, "pad_id", 0);
     SHERPA_ONNX_READ_META_DATA_STR_WITH_DEFAULT(meta_data_.voice, "voice",
                                                 "en-us");
 

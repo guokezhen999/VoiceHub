@@ -1,39 +1,104 @@
 PODS:
   - audioplayers_darwin (0.0.1):
     - Flutter
+  - DKImagePickerController/Core (4.3.9):
+    - DKImagePickerController/ImageDataManager
+    - DKImagePickerController/Resource
+  - DKImagePickerController/ImageDataManager (4.3.9)
+  - DKImagePickerController/PhotoGallery (4.3.9):
+    - DKImagePickerController/Core
+    - DKPhotoGallery
+  - DKImagePickerController/Resource (4.3.9)
+  - DKPhotoGallery (0.0.19):
+    - DKPhotoGallery/Core (= 0.0.19)
+    - DKPhotoGallery/Model (= 0.0.19)
+    - DKPhotoGallery/Preview (= 0.0.19)
+    - DKPhotoGallery/Resource (= 0.0.19)
+    - SDWebImage
+    - SwiftyGif
+  - DKPhotoGallery/Core (0.0.19):
+    - DKPhotoGallery/Model
+    - DKPhotoGallery/Preview
+    - SDWebImage
+    - SwiftyGif
+  - DKPhotoGallery/Model (0.0.19):
+    - SDWebImage
+    - SwiftyGif
+  - DKPhotoGallery/Preview (0.0.19):
+    - DKPhotoGallery/Model
+    - DKPhotoGallery/Resource
+    - SDWebImage
+    - SwiftyGif
+  - DKPhotoGallery/Resource (0.0.19):
+    - SDWebImage
+    - SwiftyGif
+  - file_picker (0.0.1):
+    - DKImagePickerController/PhotoGallery
+    - Flutter
   - Flutter (1.0.0)
   - llamacpp_macos (1.0.0):
     - Flutter
   - opus_mt_macos (1.0.0):
     - Flutter
+  - record_ios (1.2.1):
+    - Flutter
+  - SDWebImage (5.21.7):
+    - SDWebImage/Core (= 5.21.7)
+  - SDWebImage/Core (5.21.7)
   - sherpa_onnx_ios (1.13.4):
+    - Flutter
+  - SwiftyGif (5.4.5)
+  - voice_engine_macos (1.0.0):
     - Flutter
 
 DEPENDENCIES:
   - audioplayers_darwin (from `.symlinks/plugins/audioplayers_darwin/ios`)
+  - file_picker (from `.symlinks/plugins/file_picker/ios`)
   - Flutter (from `Flutter`)
   - llamacpp_macos (from `.symlinks/plugins/llamacpp_macos/ios`)
   - opus_mt_macos (from `.symlinks/plugins/opus_mt_macos/ios`)
+  - record_ios (from `.symlinks/plugins/record_ios/ios`)
   - sherpa_onnx_ios (from `.symlinks/plugins/sherpa_onnx_ios/ios`)
+  - voice_engine_macos (from `.symlinks/plugins/voice_engine_macos/ios`)
+
+SPEC REPOS:
+  trunk:
+    - DKImagePickerController
+    - DKPhotoGallery
+    - SDWebImage
+    - SwiftyGif
 
 EXTERNAL SOURCES:
   audioplayers_darwin:
     :path: ".symlinks/plugins/audioplayers_darwin/ios"
+  file_picker:
+    :path: ".symlinks/plugins/file_picker/ios"
   Flutter:
     :path: Flutter
   llamacpp_macos:
     :path: ".symlinks/plugins/llamacpp_macos/ios"
   opus_mt_macos:
     :path: ".symlinks/plugins/opus_mt_macos/ios"
+  record_ios:
+    :path: ".symlinks/plugins/record_ios/ios"
   sherpa_onnx_ios:
     :path: ".symlinks/plugins/sherpa_onnx_ios/ios"
+  voice_engine_macos:
+    :path: ".symlinks/plugins/voice_engine_macos/ios"
 
 SPEC CHECKSUMS:
   audioplayers_darwin: ccf9c770ee768abb07e26d90af093f7bab1c12ab
+  DKImagePickerController: 946cec48c7873164274ecc4624d19e3da4c1ef3c
+  DKPhotoGallery: b3834fecb755ee09a593d7c9e389d8b5d6deed60
+  file_picker: a0560bc09d61de87f12d246fc47d2119e6ef37be
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   llamacpp_macos: 1aae72a37fe1365c9d5d240845d467f76f1ecc35
   opus_mt_macos: 3588a27fe40efe8013951726372e37730a63d3a5
+  record_ios: 980fd386a97a35987d0fce3dfda4b26a38c90f4c
+  SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   sherpa_onnx_ios: 32af18abd5c776d5f425d2abe0903471d26db221
+  SwiftyGif: 706c60cf65fa2bc5ee0313beece843c8eb8194d4
+  voice_engine_macos: 82b765732347fd8dabf2e156109412c37bfeecd3
 
 PODFILE CHECKSUM: 9ddeb055a755f8a0ce57fdfd3234a052e88a5020
 

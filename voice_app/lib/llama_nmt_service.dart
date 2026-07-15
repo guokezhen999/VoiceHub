@@ -24,7 +24,7 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   await svc.loadModel(modelInfo);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
-class LlamaNmtService {
+class LlamaNmtService implements NmtBackend {
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -35,6 +35,7 @@ class LlamaNmtService {
   String _sourceLang = 'Chinese';
   String _targetLang = 'English';
 
+  @override
   bool get isLoaded => _worker != null;
   ModelInfo? get currentModel => _currentModel;
 
@@ -45,22 +46,26 @@ class LlamaNmtService {
 
   /// Load a GGUF model from [modelInfo] in a background isolate.
   /// [sourceLang] and [targetLang] are the UI-selected languages used for prompts.
+  @override
   Future<void> loadModel(
     ModelInfo modelInfo, {
-    String sourceLang = 'Chinese',
-    String targetLang = 'English',
+    String? sourceLang,
+    String? targetLang,
     int nCtx = 2048,
     int maxLength = 512,
     int numThreads = 4,
     int nGpuLayers = -1,
   }) async {
+    final resolvedSourceLang = sourceLang ?? 'Chinese';
+    final resolvedTargetLang = targetLang ?? 'English';
+
     if (_currentModel?.path == modelInfo.path && _worker != null) {
       return; // Already loaded.
     }
     await release();
 
-    _sourceLang = sourceLang;
-    _targetLang = targetLang;
+    _sourceLang = resolvedSourceLang;
+    _targetLang = resolvedTargetLang;
 
     final modelPath = modelInfo.llmModelPath ?? modelInfo.path;
     _readyCompleter = Completer<void>();
@@ -74,8 +79,8 @@ class LlamaNmtService {
         maxLength: maxLength,
         numThreads: numThreads,
         nGpuLayers: nGpuLayers,
-        sourceLang: sourceLang,
-        targetLang: targetLang,
+        sourceLang: resolvedSourceLang,
+        targetLang: resolvedTargetLang,
       ),
     );
 
@@ -137,6 +142,7 @@ class LlamaNmtService {
   }
 
   /// Translate [text] with per-token streaming.
+  @override
   Stream<String> translateStream(String text) {
     if (_workerSendPort == null) {
       throw Exception('Llama NMT model not loaded. Call loadModel() first.');
@@ -180,9 +186,11 @@ class LlamaNmtService {
 
   /// The timing result from the most recent [translateStream] call.
   TranslationResult? _lastStreamResult;
+  @override
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
   /// Release the loaded model and terminate the background isolate.
+  @override
   Future<void> release() async {
     if (_workerSendPort != null) {
       try {

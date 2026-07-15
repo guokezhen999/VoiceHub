@@ -5,6 +5,7 @@ import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
 import 'llama_nmt_service.dart';
+import 'nmt_service_common.dart';
 
 class TranslationScreen extends StatefulWidget {
   final bool showPerfMetrics;
@@ -18,10 +19,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
   final TextEditingController _sourceController = TextEditingController();
   final TextEditingController _targetController = TextEditingController();
 
-  final NativeNmtService _marianService = NativeNmtService();
-  final LlamaNmtService _llamaService = LlamaNmtService();
+  NmtBackend? _nmtBackend;
   bool _isTranslating = false;
-  bool _isInitialized = false;
 
   // Backend selection
   String _backendType = 'nmt'; // 'nmt' = Marian ONNX, 'llm' = Llama GGUF
@@ -105,38 +104,36 @@ class _TranslationScreenState extends State<TranslationScreen> {
     _deinitializeEngine();
   }
 
-  dynamic get _activeService => _backendType == 'llm' ? _llamaService : _marianService;
   bool get _isLlamaBackend => _backendType == 'llm';
 
   void _deinitializeEngine() {
-    _marianService.release();
-    _llamaService.release();
-    setState(() {
-      _isInitialized = false;
-    });
+    _nmtBackend?.release();
+    _nmtBackend = null;
+    setState(() {});
   }
 
   Future<void> _initializeEngine() async {
     if (_selectedNmtModel == null) return;
     try {
       if (_isLlamaBackend) {
-        await _llamaService.loadModel(
+        _nmtBackend = LlamaNmtService();
+        await _nmtBackend!.loadModel(
           _selectedNmtModel!,
           sourceLang: _selectedSourceLang,
           targetLang: _selectedTargetLang,
         );
       } else {
-        await _marianService.loadModel(_selectedNmtModel!);
+        _nmtBackend = NativeNmtService();
+        await _nmtBackend!.loadModel(_selectedNmtModel!);
       }
-      setState(() {
-        _isInitialized = true;
-      });
+      setState(() {});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('NMT Engine initialized: ${_selectedNmtModel!.name}')),
         );
       }
     } catch (e) {
+      _nmtBackend = null;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to initialize NMT: $e')),
@@ -146,7 +143,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
   }
 
   Future<void> _translate() async {
-    if (!_isInitialized) {
+    if (!(_nmtBackend?.isLoaded ?? false)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please initialize the NMT engine first.')),
       );
@@ -167,14 +164,13 @@ class _TranslationScreenState extends State<TranslationScreen> {
     });
 
     try {
-      final svc = _activeService;
-      await for (final partial in svc.translateStream(text)) {
+      await for (final partial in _nmtBackend!.translateStream(text)) {
         setState(() {
           _targetController.text = partial;
         });
       }
       // Stream complete — capture timing from the final result.
-      final timing = svc.lastStreamTiming;
+      final timing = _nmtBackend!.lastStreamTiming;
       if (timing != null) {
         setState(() {
           _lastInputTokens = timing.inputTokens;
@@ -457,18 +453,18 @@ class _TranslationScreenState extends State<TranslationScreen> {
           // Init / Deinit Button
           if (_selectedNmtModel != null)
             ElevatedButton(
-              onPressed: _isInitialized ? _deinitializeEngine : _initializeEngine,
+              onPressed: (_nmtBackend?.isLoaded ?? false) ? _deinitializeEngine : _initializeEngine,
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.all(14),
-                backgroundColor: _isInitialized ? Colors.red : Colors.blue,
+                backgroundColor: (_nmtBackend?.isLoaded ?? false) ? Colors.red : Colors.blue,
                 foregroundColor: Colors.white,
               ),
-              child: Text(_isInitialized ? 'Deinitialize NMT Engine' : 'Initialize NMT Engine'),
+              child: Text((_nmtBackend?.isLoaded ?? false) ? 'Deinitialize NMT Engine' : 'Initialize NMT Engine'),
             ),
           const SizedBox(height: 20),
 
           // Translation UI — only visible after init
-          if (_isInitialized) ...[
+          if (_nmtBackend?.isLoaded ?? false) ...[
           // Source Input
           const Text('Source Text:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 6),
@@ -484,7 +480,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
           // Translation Button
           ElevatedButton.icon(
-            onPressed: (_isTranslating || !_isInitialized) ? null : _translate,
+            onPressed: (_isTranslating || !(_nmtBackend?.isLoaded ?? false)) ? null : _translate,
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -557,7 +553,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
               ),
             ),
           ],
-          ], // End of _isInitialized block
+          ], // End of isLoaded block
         ],
       ),
     );
@@ -581,8 +577,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
     ModelManager.changeNotifier.removeListener(_loadModels);
     _sourceController.dispose();
     _targetController.dispose();
-    _marianService.release();
-    _llamaService.release();
+    _nmtBackend?.release();
     super.dispose();
   }
 }

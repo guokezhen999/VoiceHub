@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:ffi';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
-import 'utils.dart';
+import 'asr_service.dart';
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'voice_engine_ffi_bridge.dart';
@@ -24,9 +22,7 @@ class _AsrScreenState extends State<AsrScreen> {
   StreamSubscription<Uint8List>? _audioStreamSub;
   RecordState _recordState = RecordState.stop;
 
-  bool _isInitialized = false;
-  bool _isOfflineModel = false;
-  Pointer<Void>? _handle;
+  final AsrService _asr = AsrService();
 
   List<String> _sentences = [];
   String _currentResult = "";
@@ -37,10 +33,6 @@ class _AsrScreenState extends State<AsrScreen> {
   String? _selectedLanguage;
   ModelInfo? _selectedModel;
   bool _loadingModels = true;
-
-  static const List<String> _leadingPuncs = [
-    '，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';',
-  ];
 
   @override
   void initState() {
@@ -92,23 +84,18 @@ class _AsrScreenState extends State<AsrScreen> {
     } else {
       _selectedModel = null;
     }
-    if (_isInitialized) {
+    if (_asr.isInitialized) {
       _deinitializeEngine();
     }
   }
 
   void _deinitializeEngine() {
-    if (_handle != null) {
-      VoiceEngineBridge.instance.destroy(_handle!);
-      _handle = null;
-    }
-    setState(() {
-      _isInitialized = false;
-    });
+    _asr.deinitialize();
+    setState(() {});
   }
 
   Future<void> _initializeEngine() async {
-    if (_isInitialized) return;
+    if (_asr.isInitialized) return;
     if (_selectedModel == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please import/select an ASR model first!')),
@@ -117,43 +104,9 @@ class _AsrScreenState extends State<AsrScreen> {
     }
 
     try {
-      await VoiceEngineBridge.init();
+      await _asr.initialize(_selectedModel!);
 
-      final sileroModelPath = await ModelManager.ensureSileroVad();
-      _isOfflineModel = !_selectedModel!.isStreamingASR;
-
-      final config = {
-        'mode': _isOfflineModel ? 'offline' : 'online',
-        'encoder': _selectedModel!.asrEncoderPath!,
-        'decoder': _selectedModel!.asrDecoderPath!,
-        'joiner': _selectedModel!.asrJoinerPath!,
-        'tokens': _selectedModel!.tokensPath!,
-        'model_type': 'zipformer2',
-        'decoding_method': 'greedy_search',
-        'num_threads': 1,
-        'vad': {
-          'model': sileroModelPath,
-          'threshold': 0.5,
-          'min_silence_duration': 0.5,
-          'min_speech_duration': 0.25,
-          'window_size': 512,
-          'max_speech_duration': 20.0,
-          'sample_rate': 16000,
-          'num_threads': 1,
-          'buffer_size_seconds': 60.0,
-        },
-        'endpoint': {
-          'enable': true,
-          'rule1_min_trailing_silence': 2.4,
-          'rule2_min_trailing_silence': 1.0,
-        },
-      };
-
-      _handle = VoiceEngineBridge.instance.create(jsonEncode(config));
-
-      setState(() {
-        _isInitialized = true;
-      });
+      setState(() {});
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('ASR Engine initialized: ${_selectedModel!.name}')),
@@ -167,33 +120,18 @@ class _AsrScreenState extends State<AsrScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (!_isInitialized || _handle == null) return;
+    if (!_asr.isInitialized || _asr.handle == null) return;
 
     try {
       if (await _audioRecorder.hasPermission()) {
-        const config = RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-        );
-
-        VoiceEngineBridge.instance.reset(_handle!);
+        _asr.reset();
 
         setState(() {
           _currentResult = "";
           _updateTranscript();
         });
 
-        final audioStream = await _audioRecorder.startStream(config);
-
-        _audioStreamSub = audioStream.listen((data) {
-          if (_handle == null) return;
-
-          final samples = convertBytesToFloat32(Uint8List.fromList(data));
-          VoiceEngineBridge.instance.acceptWaveform(_handle!, samples);
-          final r = VoiceEngineBridge.instance.poll(_handle!);
-          _onPoll(r);
-        });
+        _audioStreamSub = await _asr.startStream(_audioRecorder, _onPoll);
       }
     } catch (e) {
       debugPrint('ASR Recording Error: $e');
@@ -203,8 +141,8 @@ class _AsrScreenState extends State<AsrScreen> {
   void _onPoll(VoiceEnginePollResult r) {
     setState(() {
       for (final f in r.finalized) {
-        var text = _stripLeadingPuncs(f);
-        text = _formatTextWithCasing(text);
+        var text = AsrService.stripLeadingPuncs(f);
+        text = AsrService.formatTextWithCasing(text, _selectedModel?.casing ?? 'mixed');
         if (text.isNotEmpty) {
           _sentences.add(text);
           _sentenceIndex += 1;
@@ -214,7 +152,7 @@ class _AsrScreenState extends State<AsrScreen> {
       if (r.speaking) {
         _currentResult = r.partial.isEmpty
             ? "Speaking..."
-            : _formatTextWithCasing(r.partial);
+            : AsrService.formatTextWithCasing(r.partial, _selectedModel?.casing ?? 'mixed');
       } else {
         _currentResult = "";
       }
@@ -222,21 +160,13 @@ class _AsrScreenState extends State<AsrScreen> {
     });
   }
 
-  static String _stripLeadingPuncs(String text) {
-    while (text.isNotEmpty && _leadingPuncs.contains(text[0])) {
-      text = text.substring(1);
-    }
-    return text;
-  }
-
   Future<void> _stopRecording() async {
     await _audioStreamSub?.cancel();
     _audioStreamSub = null;
     await _audioRecorder.stop();
 
-    if (_handle != null) {
-      VoiceEngineBridge.instance.flush(_handle!);
-      final r = VoiceEngineBridge.instance.poll(_handle!);
+    if (_asr.handle != null) {
+      final r = _asr.flushAndPoll();
       _onPoll(r);
     }
 
@@ -244,29 +174,6 @@ class _AsrScreenState extends State<AsrScreen> {
       _currentResult = "";
       _updateTranscript();
     });
-  }
-
-  String _formatTextWithCasing(String text) {
-    final casing = _selectedModel?.casing ?? 'mixed';
-    if (casing == 'mixed') return text;
-
-    String lowercaseText = text.toLowerCase();
-    StringBuffer result = StringBuffer();
-    bool capitalizeNext = true;
-
-    for (int i = 0; i < lowercaseText.length; i++) {
-      String char = lowercaseText[i];
-      if (capitalizeNext && RegExp(r'[a-zA-Z]').hasMatch(char)) {
-        result.write(char.toUpperCase());
-        capitalizeNext = false;
-      } else {
-        result.write(char);
-        if (char == '.' || char == '。') {
-          capitalizeNext = true;
-        }
-      }
-    }
-    return result.toString();
   }
 
   void _clearTranscript() {
@@ -282,7 +189,7 @@ class _AsrScreenState extends State<AsrScreen> {
     List<String> renderedSentences = List.from(_sentences);
     String renderedCurrent = _currentResult;
 
-    while (renderedCurrent.isNotEmpty && _leadingPuncs.contains(renderedCurrent[0])) {
+    while (renderedCurrent.isNotEmpty && AsrService.leadingPuncs.contains(renderedCurrent[0])) {
       renderedCurrent = renderedCurrent.substring(1);
     }
 
@@ -417,7 +324,7 @@ class _AsrScreenState extends State<AsrScreen> {
                           if (val != null) {
                             setState(() {
                               _selectedModel = val;
-                              if (_isInitialized) {
+                              if (_asr.isInitialized) {
                                 _deinitializeEngine();
                               }
                             });
@@ -436,13 +343,13 @@ class _AsrScreenState extends State<AsrScreen> {
           ElevatedButton(
             onPressed: _selectedModel == null
                 ? null
-                : (_isInitialized ? _deinitializeEngine : _initializeEngine),
+                : (_asr.isInitialized ? _deinitializeEngine : _initializeEngine),
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.all(14),
-              backgroundColor: _isInitialized ? Colors.red : Colors.blue,
+              backgroundColor: _asr.isInitialized ? Colors.red : Colors.blue,
               foregroundColor: Colors.white,
             ),
-            child: Text(_isInitialized ? 'Deinitialize ASR Engine' : 'Initialize ASR Engine'),
+            child: Text(_asr.isInitialized ? 'Deinitialize ASR Engine' : 'Initialize ASR Engine'),
           ),
           const SizedBox(height: 20),
 
@@ -450,7 +357,7 @@ class _AsrScreenState extends State<AsrScreen> {
           const SizedBox(height: 10),
 
           // Controls & Log
-          if (_isInitialized) ...[
+          if (_asr.isInitialized) ...[
             GestureDetector(
               onTap: () {
                 if (_recordState != RecordState.stop) {
@@ -526,10 +433,7 @@ class _AsrScreenState extends State<AsrScreen> {
     _recordSub?.cancel();
     _audioStreamSub?.cancel();
     _audioRecorder.dispose();
-    if (_handle != null) {
-      VoiceEngineBridge.instance.destroy(_handle!);
-      _handle = null;
-    }
+    _asr.deinitialize();
     super.dispose();
   }
 }

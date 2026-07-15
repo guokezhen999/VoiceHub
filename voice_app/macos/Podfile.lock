@@ -1,9 +1,13 @@
 PODS:
   - audioplayers_darwin (0.0.1):
     - FlutterMacOS
+  - file_picker (0.0.1):
+    - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - llamacpp_macos (1.0.0)
   - opus_mt_macos (1.0.0):
+    - FlutterMacOS
+  - record_macos (1.2.1):
     - FlutterMacOS
   - sherpa_onnx_macos (1.13.4):
     - FlutterMacOS
@@ -12,21 +16,27 @@ PODS:
 
 DEPENDENCIES:
   - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos`)
+  - file_picker (from `Flutter/ephemeral/.symlinks/plugins/file_picker/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - llamacpp_macos (from `Flutter/ephemeral/.symlinks/plugins/llamacpp_macos/macos`)
   - opus_mt_macos (from `Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos`)
+  - record_macos (from `Flutter/ephemeral/.symlinks/plugins/record_macos/macos`)
   - sherpa_onnx_macos (from `Flutter/ephemeral/.symlinks/plugins/sherpa_onnx_macos/macos`)
   - voice_engine_macos (from `Flutter/ephemeral/.symlinks/plugins/voice_engine_macos/macos`)
 
 EXTERNAL SOURCES:
   audioplayers_darwin:
     :path: Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos
+  file_picker:
+    :path: Flutter/ephemeral/.symlinks/plugins/file_picker/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
   llamacpp_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/llamacpp_macos/macos
   opus_mt_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/opus_mt_macos/macos
+  record_macos:
+    :path: Flutter/ephemeral/.symlinks/plugins/record_macos/macos
   sherpa_onnx_macos:
     :path: Flutter/ephemeral/.symlinks/plugins/sherpa_onnx_macos/macos
   voice_engine_macos:
@@ -34,9 +44,11 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   audioplayers_darwin: 761f2948df701d05b5db603220c384fb55720012
+  file_picker: 7584aae6fa07a041af2b36a2655122d42f578c1a
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   llamacpp_macos: c080101e7e539cf74b29b7466a84bfe1ea06803e
   opus_mt_macos: 12f3586f36d67e4f5f5d3b7eef6383b6939549af
+  record_macos: 5d55909f9650314be6424ffd6b123ac75a08c3c1
   sherpa_onnx_macos: e648c8a9f1a02ec1d7e2788a2963bc86e67e2dd7
   voice_engine_macos: f566b1045a9ef4ad9219e7424103a7d4f1ac7e3a
 

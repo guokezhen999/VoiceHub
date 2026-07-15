@@ -1,20 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:ffi';
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 import 'package:audioplayers/audioplayers.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
 
-import 'utils.dart';
+import 'asr_service.dart';
+import 'tts_service.dart';
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
 import 'native_nmt_service.dart';
 import 'llama_nmt_service.dart';
+import 'nmt_service_common.dart';
 import 'voice_engine_ffi_bridge.dart';
 import 'main.dart'; // To access showPerfMetricsNotifier if needed
 
@@ -35,28 +31,21 @@ class CascadeTranslationScreen extends StatefulWidget {
 
 class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   // Services
-  final NativeNmtService _marianService = NativeNmtService();
-  final LlamaNmtService _llamaService = LlamaNmtService();
+  NmtBackend? _nmtBackend;
   late final AudioRecorder _audioRecorder;
   late final AudioPlayer _audioPlayer;
 
   // Stream Subscriptions for Recording
   StreamSubscription<RecordState>? _recordSub;
   StreamSubscription<Uint8List>? _audioStreamSub;
-  RecordState _recordState = RecordState.stop;
 
   // ASR Engine State
-  bool _isAsrInitialized = false;
-  bool _isAsrOfflineModel = false;
-  Pointer<Void>? _asrHandle;
+  final AsrService _asr = AsrService();
 
-  // MT Engine State
-  bool _isNmtInitialized = false;
-  bool _isLlmInitialized = false;
+  // MT Engine State — isLoaded is tracked via _nmtBackend?.isLoaded
 
   // TTS Engine State
-  bool _isTtsInitialized = false;
-  sherpa_onnx.OfflineTts? _tts;
+  final TtsService _ttsService = TtsService();
 
   // Model Selection Lists
   List<ModelInfo> _allAsrModels = [];
@@ -78,7 +67,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
   // TTS Settings
   int _selectedSpeakerId = 0;
-  int _maxSpeakerID = 0;
   double _ttsSpeed = 1.0;
 
   // Pipeline execution outputs
@@ -129,7 +117,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
     _recordSub = _audioRecorder.onStateChanged().listen((recordState) {
       setState(() {
-        _recordState = recordState;
         _isRecording = recordState == RecordState.record;
       });
     });
@@ -244,34 +231,20 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   }
 
   void _deinitializeAsr() {
-    if (_asrHandle != null) {
-      VoiceEngineBridge.instance.destroy(_asrHandle!);
-      _asrHandle = null;
-    }
-    _isAsrInitialized = false;
+    _asr.deinitialize();
   }
 
   void _deinitializeMt() {
-    _marianService.release();
-    _llamaService.release();
-    _isNmtInitialized = false;
-    _isLlmInitialized = false;
+    _nmtBackend?.release();
+    _nmtBackend = null;
   }
 
   void _deinitializeTts() {
-    _tts?.free();
-    _tts = null;
-    _isTtsInitialized = false;
-    _maxSpeakerID = 0;
+    _ttsService.deinitialize();
   }
 
   Future<void> _initializeAllEngines() async {
     _deinitializeAll();
-
-    // sherpa_onnx native bindings are still required by TTS (OfflineTts), so
-    // initialize them up front — ASR now goes through voice_engine, but TTS
-    // does not.
-    sherpa_onnx.initBindings();
 
     // 1. Initialize ASR
     if (_selectedAsrModel == null) {
@@ -282,41 +255,9 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
     setState(() => _isInitializingASR = true);
     try {
-      await VoiceEngineBridge.init();
-
-      _isAsrOfflineModel = !_selectedAsrModel!.isStreamingASR;
-
-      final sileroModelPath = await ModelManager.ensureSileroVad();
-      final config = {
-        'mode': _isAsrOfflineModel ? 'offline' : 'online',
-        'encoder': _selectedAsrModel!.asrEncoderPath!,
-        'decoder': _selectedAsrModel!.asrDecoderPath!,
-        'joiner': _selectedAsrModel!.asrJoinerPath!,
-        'tokens': _selectedAsrModel!.tokensPath!,
-        'model_type': 'zipformer2',
-        'decoding_method': 'greedy_search',
-        'num_threads': 1,
-        'vad': {
-          'model': sileroModelPath,
-          'threshold': 0.5,
-          'min_silence_duration': 0.5,
-          'min_speech_duration': 0.25,
-          'window_size': 512,
-          'max_speech_duration': 20.0,
-          'sample_rate': 16000,
-          'num_threads': 1,
-          'buffer_size_seconds': 60.0,
-        },
-        'endpoint': {
-          'enable': true,
-          'rule1_min_trailing_silence': 2.4,
-          'rule2_min_trailing_silence': 1.0,
-        },
-      };
-      _asrHandle = VoiceEngineBridge.instance.create(jsonEncode(config));
+      await _asr.initialize(_selectedAsrModel!);
 
       setState(() {
-        _isAsrInitialized = true;
         _isInitializingASR = false;
       });
     } catch (e) {
@@ -337,16 +278,15 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       }
       setState(() => _isInitializingMT = true);
       try {
-        await _llamaService.loadModel(
+        _nmtBackend = LlamaNmtService();
+        await _nmtBackend!.loadModel(
           _selectedLlmModel!,
           sourceLang: _selectedSourceLang,
           targetLang: _selectedTargetLang,
         );
-        setState(() {
-          _isLlmInitialized = true;
-          _isInitializingMT = false;
-        });
+        setState(() => _isInitializingMT = false);
       } catch (e) {
+        _nmtBackend = null;
         setState(() => _isInitializingMT = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('LLM Initialization Failed: $e')),
@@ -362,12 +302,11 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       }
       setState(() => _isInitializingMT = true);
       try {
-        await _marianService.loadModel(_selectedNmtModel!);
-        setState(() {
-          _isNmtInitialized = true;
-          _isInitializingMT = false;
-        });
+        _nmtBackend = NativeNmtService();
+        await _nmtBackend!.loadModel(_selectedNmtModel!);
+        setState(() => _isInitializingMT = false);
       } catch (e) {
+        _nmtBackend = null;
         setState(() => _isInitializingMT = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Opus MT Initialization Failed: $e')),
@@ -385,85 +324,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
     setState(() => _isInitializingTTS = true);
     try {
-      final encoderPath = _selectedTtsModel!.ttsEncoderPath;
-      final decoderPath = _selectedTtsModel!.ttsDecoderPath;
-      final isSplit = encoderPath != null && decoderPath != null;
+      await _ttsService.initialize(_selectedTtsModel!);
 
-      final tokensPath = _selectedTtsModel!.tokensPath!;
-      final lexiconPath = _selectedTtsModel!.lexiconPath ?? '';
-      final ruleFsts = _selectedTtsModel!.ruleFsts;
-
-      var dataDir = '';
-      if (lexiconPath.isEmpty) {
-        dataDir = _selectedTtsModel!.ttsDataDirPath ?? '';
-        if (dataDir.isEmpty) {
-          final appSupport = await getApplicationSupportDirectory();
-          final globalEspeakDir = Directory(p.join(appSupport.path, 'espeak-ng-data'));
-          if (globalEspeakDir.existsSync()) {
-            dataDir = globalEspeakDir.path;
-          }
-        }
-      }
-
-      final sherpa_onnx.OfflineTtsModelConfig modelConfig;
-
-      if (isSplit && _selectedTtsModel!.ttsEngineType == 'matcha') {
-        final matcha = sherpa_onnx.OfflineTtsMatchaModelConfig(
-          acousticModel: encoderPath,
-          vocoder: decoderPath,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          matcha: matcha,
-        );
-      } else if (isSplit && _selectedTtsModel!.ttsEngineType == 'vits_online') {
-        // Pass directory path so C++ auto-detection (offline-tts-impl.cc)
-        // finds encoder.onnx/decoder.onnx and routes to OnlineTtsVitsImpl.
-        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-          model: _selectedTtsModel!.path,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-          dictDir: _selectedTtsModel!.ttsDictDirPath ?? '',
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          vits: vits,
-        );
-      } else {
-        final modelPath = _selectedTtsModel!.ttsModelPath ?? '';
-        if (modelPath.isEmpty) {
-          throw Exception('VITS model file not found in directory ${_selectedTtsModel!.path}');
-        }
-        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-          model: modelPath,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-          dictDir: _selectedTtsModel!.ttsDictDirPath ?? '',
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          vits: vits,
-        );
-      }
-
-      final config = sherpa_onnx.OfflineTtsConfig(
-        model: modelConfig,
-        ruleFsts: ruleFsts,
-      );
-
-      _tts = sherpa_onnx.OfflineTts(config);
       setState(() {
-        _maxSpeakerID = _tts?.numSpeakers ?? 0;
-        if (_maxSpeakerID > 0) {
-          _maxSpeakerID -= 1;
-        }
         _selectedSpeakerId = 0;
-        _isTtsInitialized = true;
         _isInitializingTTS = false;
         _pipelineStatus = "Ready";
       });
@@ -484,9 +348,9 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   }
 
   bool get _isEnginesReady {
-    return _isAsrInitialized &&
-        (_mtMode == 'llm' ? _isLlmInitialized : _isNmtInitialized) &&
-        _isTtsInitialized;
+    return _asr.isInitialized &&
+        (_nmtBackend?.isLoaded ?? false) &&
+        _ttsService.isInitialized;
   }
 
   Future<void> _startRecording() async {
@@ -501,7 +365,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       if (await _audioRecorder.hasPermission()) {
         await _audioPlayer.stop();
 
-        VoiceEngineBridge.instance.reset(_asrHandle!);
+        _asr.reset();
 
         setState(() {
           _asrText = _sentences.join(" ");
@@ -527,45 +391,19 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           _ttsRtf = null;
         });
 
-        const config = RecordConfig(
-          encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
-        );
-
-        final audioStream = await _audioRecorder.startStream(config);
-
-        _audioStreamSub = audioStream.listen((data) {
-          if (_asrHandle == null) return;
-
-          final samples = convertBytesToFloat32(Uint8List.fromList(data));
-          VoiceEngineBridge.instance.acceptWaveform(_asrHandle!, samples);
-          final r = VoiceEngineBridge.instance.poll(_asrHandle!);
-          _onAsrPoll(r);
-        });
+        _audioStreamSub = await _asr.startStream(_audioRecorder, _onAsrPoll);
       }
     } catch (e) {
       debugPrint('Cascade ASR Recording Error: $e');
     }
   }
 
-  static const List<String> _leadingPuncs = [
-    '，', '。', '？', '！', '、', '；', ',', '.', '?', '!', ';',
-  ];
-
-  static String _stripLeadingPuncs(String text) {
-    while (text.isNotEmpty && _leadingPuncs.contains(text[0])) {
-      text = text.substring(1);
-    }
-    return text;
-  }
-
   /// Process a poll result from the voice_engine pipeline: append finalized
   /// sentences to the cascade pipeline and update the live ASR display.
   void _onAsrPoll(VoiceEnginePollResult r) {
     for (final f in r.finalized) {
-      var text = _stripLeadingPuncs(f);
-      text = _formatTextWithCasing(text);
+      var text = AsrService.stripLeadingPuncs(f);
+      text = AsrService.formatTextWithCasing(text, _selectedAsrModel?.casing ?? 'mixed');
       if (text.isNotEmpty) {
         final segIdx = _cascadeSegments.length;
         _sentences.add(text);
@@ -577,7 +415,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
     setState(() {
       final partialText = (r.speaking && r.partial.isNotEmpty)
-          ? _formatTextWithCasing(r.partial)
+          ? AsrService.formatTextWithCasing(r.partial, _selectedAsrModel?.casing ?? 'mixed')
           : "";
       _currentAsrResult = r.speaking
           ? (r.partial.isEmpty ? "Speaking..." : partialText)
@@ -593,12 +431,11 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _audioStreamSub = null;
 
       // Flush the VAD tail and drain any remaining finalized segments.
-      if (_asrHandle != null) {
-        VoiceEngineBridge.instance.flush(_asrHandle!);
-        final r = VoiceEngineBridge.instance.poll(_asrHandle!);
+      if (_asr.handle != null) {
+        final r = _asr.flushAndPoll();
         for (final f in r.finalized) {
-          var text = _stripLeadingPuncs(f);
-          text = _formatTextWithCasing(text);
+          var text = AsrService.stripLeadingPuncs(f);
+          text = AsrService.formatTextWithCasing(text, _selectedAsrModel?.casing ?? 'mixed');
           if (text.isNotEmpty) {
             final segIdx = _cascadeSegments.length;
             _sentences.add(text);
@@ -649,9 +486,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
       String translatedText = "";
       try {
-        final Stream<String> translationStream = _mtMode == 'llm'
-            ? _llamaService.translateStream(sentence)
-            : _marianService.translateStream(sentence);
+        final Stream<String> translationStream = _nmtBackend!.translateStream(sentence);
 
         await for (final partial in translationStream) {
           translatedText = partial;
@@ -663,9 +498,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           });
         }
 
-        final timing = _mtMode == 'llm'
-            ? _llamaService.lastStreamTiming
-            : _marianService.lastStreamTiming;
+        final timing = _nmtBackend!.lastStreamTiming;
         if (timing != null) {
           setState(() {
             _mtInputTokens = timing.inputTokens;
@@ -718,67 +551,32 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       });
 
       try {
-        if (!_isTtsInitialized || _tts == null) continue;
+        if (!_ttsService.isInitialized) continue;
 
-        final encoderPath = _selectedTtsModel!.ttsEncoderPath;
-        final decoderPath = _selectedTtsModel!.ttsDecoderPath;
-        final isSplit = encoderPath != null && decoderPath != null;
-
-        String normalizedText = text;
-        if (isSplit) {
-          normalizedText = _selectedTtsModel!.normalizeText(text);
-        } else {
-          normalizedText = _convertFullWidthToHalfWidth(text);
-        }
-
-        final genConfig = sherpa_onnx.OfflineTtsGenerationConfig(
-          sid: _selectedSpeakerId,
+        final result = await _ttsService.synthesize(
+          text: text,
+          model: _selectedTtsModel!,
+          speakerId: _selectedSpeakerId,
           speed: _ttsSpeed,
-          silenceScale: 0.2,
+          prefix: 'tts-cascade',
+          suffix: '-sid-$_selectedSpeakerId-speed-${_ttsSpeed.toStringAsFixed(1)}',
         );
 
-        final stopwatch = Stopwatch()..start();
-        final audio = _tts!.generateWithConfig(
-          text: normalizedText,
-          config: genConfig,
-        );
+        setState(() {
+          _ttsElapsedSec = result.elapsedSec;
+          _ttsAudioDurationSec = result.audioDurationSec;
+          _ttsRtf = result.rtf;
+          _pipelineStatus = "Speaking translation...";
+          _isTtsPlaying = true;
+        });
 
-        final suffix = '-cascade-sid-$_selectedSpeakerId-speed-${_ttsSpeed.toStringAsFixed(1)}';
-        final filename = await _generateWavFilename(suffix);
+        _playCompleter = Completer<void>();
+        await _audioPlayer.play(DeviceFileSource(result.wavPath));
+        await _playCompleter!.future;
 
-        final file = File(filename);
-        if (!await file.parent.exists()) {
-          await file.parent.create(recursive: true);
-        }
-
-        final ok = sherpa_onnx.writeWave(
-          filename: filename,
-          samples: audio.samples,
-          sampleRate: audio.sampleRate,
-        );
-
-        if (ok) {
-          stopwatch.stop();
-          final elapsed = stopwatch.elapsed.inMilliseconds / 1000.0;
-          final waveDuration = audio.samples.length / audio.sampleRate;
-          final rtf = elapsed / waveDuration;
-
-          setState(() {
-            _ttsElapsedSec = elapsed;
-            _ttsAudioDurationSec = waveDuration;
-            _ttsRtf = rtf;
-            _pipelineStatus = "Speaking translation...";
-            _isTtsPlaying = true;
-          });
-
-          _playCompleter = Completer<void>();
-          await _audioPlayer.play(DeviceFileSource(filename));
-          await _playCompleter!.future;
-
-          setState(() {
-            _isTtsPlaying = false;
-          });
-        }
+        setState(() {
+          _isTtsPlaying = false;
+        });
       } catch (e) {
         setState(() {
           _pipelineStatus = "TTS error: $e";
@@ -807,64 +605,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     });
   }
 
-  Future<void> _runTranslation(String text) async {
-    setState(() {
-      _currentStep = 2; // Step 2: MT
-      _mtText = "";
-      _pipelineStatus = "Translating text...";
-    });
-
-    try {
-      final isServiceLoaded = _mtMode == 'llm' ? _isLlmInitialized : _isNmtInitialized;
-
-      if (!isServiceLoaded) {
-        throw Exception("MT Service not initialized.");
-      }
-
-      final Stream<String> translationStream = _mtMode == 'llm'
-          ? _llamaService.translateStream(text)
-          : _marianService.translateStream(text);
-
-      await for (final partial in translationStream) {
-        setState(() {
-          _mtText = partial;
-        });
-      }
-
-      final timing = _mtMode == 'llm'
-          ? _llamaService.lastStreamTiming
-          : _marianService.lastStreamTiming;
-      if (timing != null) {
-        setState(() {
-          _mtInputTokens = timing.inputTokens;
-          _mtEncoderMs = timing.encoderMs;
-          _mtDecoderTokens = timing.decoderTokens;
-          _mtDecoderTokensPerSec = timing.decoderTokensPerSecond >= 0 ? timing.decoderTokensPerSecond : null;
-        });
-      }
-
-      final finalizedTranslation = _mtText.trim();
-      if (finalizedTranslation.isNotEmpty) {
-        _runTts(finalizedTranslation);
-      } else {
-        setState(() {
-          _currentStep = 0;
-          _pipelineStatus = "Translation resulted in empty text.";
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _currentStep = 0;
-        _pipelineStatus = "Translation Error: $e";
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Translation error: $e')),
-      );
-    }
-  }
-
   Future<void> _runTts(String text) async {
-    if (!_isTtsInitialized || _tts == null) {
+    if (!_ttsService.isInitialized) {
       setState(() {
         _currentStep = 0;
         _pipelineStatus = "TTS engine not initialized.";
@@ -877,64 +619,24 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _pipelineStatus = "Synthesizing translation...";
     });
 
-    final stopwatch = Stopwatch()..start();
-
     try {
-      final encoderPath = _selectedTtsModel!.ttsEncoderPath;
-      final decoderPath = _selectedTtsModel!.ttsDecoderPath;
-      final isSplit = encoderPath != null && decoderPath != null;
-
-      String normalizedText = text;
-      if (isSplit) {
-        normalizedText = _selectedTtsModel!.normalizeText(text);
-        debugPrint('[Cascade TTS] Text after online normalization: $normalizedText');
-      } else {
-        normalizedText = _convertFullWidthToHalfWidth(text);
-        debugPrint('[Cascade TTS] Text after converting full-width to half-width: $normalizedText');
-      }
-
-      final genConfig = sherpa_onnx.OfflineTtsGenerationConfig(
-        sid: _selectedSpeakerId,
+      final result = await _ttsService.synthesize(
+        text: text,
+        model: _selectedTtsModel!,
+        speakerId: _selectedSpeakerId,
         speed: _ttsSpeed,
-        silenceScale: 0.2,
+        prefix: 'tts-cascade',
+        suffix: '-sid-$_selectedSpeakerId-speed-${_ttsSpeed.toStringAsFixed(1)}',
       );
 
-      final audio = _tts!.generateWithConfig(
-        text: normalizedText,
-        config: genConfig,
-      );
+      setState(() {
+        _ttsElapsedSec = result.elapsedSec;
+        _ttsAudioDurationSec = result.audioDurationSec;
+        _ttsRtf = result.rtf;
+        _pipelineStatus = "Speaking translation...";
+      });
 
-      final suffix = '-cascade-sid-$_selectedSpeakerId-speed-${_ttsSpeed.toStringAsFixed(1)}';
-      final filename = await _generateWavFilename(suffix);
-
-      final file = File(filename);
-      if (!await file.parent.exists()) {
-        await file.parent.create(recursive: true);
-      }
-
-      final ok = sherpa_onnx.writeWave(
-        filename: filename,
-        samples: audio.samples,
-        sampleRate: audio.sampleRate,
-      );
-
-      if (ok) {
-        stopwatch.stop();
-        final elapsed = stopwatch.elapsed.inMilliseconds / 1000.0;
-        final waveDuration = audio.samples.length / audio.sampleRate;
-        final rtf = elapsed / waveDuration;
-
-        setState(() {
-          _ttsElapsedSec = elapsed;
-          _ttsAudioDurationSec = waveDuration;
-          _ttsRtf = rtf;
-          _pipelineStatus = "Speaking translation...";
-        });
-
-        await _audioPlayer.play(DeviceFileSource(filename));
-      } else {
-        throw Exception("Failed to write WAV file.");
-      }
+      await _audioPlayer.play(DeviceFileSource(result.wavPath));
     } catch (e) {
       setState(() {
         _currentStep = 0;
@@ -944,12 +646,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
         SnackBar(content: Text('TTS synthesis failed: $e')),
       );
     }
-  }
-
-  Future<String> _generateWavFilename(String suffix) async {
-    final dir = await getTemporaryDirectory();
-    final name = 'tts-cascade-${DateTime.now().millisecondsSinceEpoch}$suffix.wav';
-    return p.join(dir.path, name);
   }
 
   void _clearConversation() {
@@ -978,60 +674,6 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _ttsRtf = null;
     });
   }
-
-  String _formatTextWithCasing(String text) {
-    final casing = _selectedAsrModel?.casing ?? 'mixed';
-    if (casing == 'mixed') return text;
-
-    String lowercaseText = text.toLowerCase();
-    StringBuffer result = StringBuffer();
-    bool capitalizeNext = true;
-
-    for (int i = 0; i < lowercaseText.length; i++) {
-      String char = lowercaseText[i];
-      if (capitalizeNext && RegExp(r'[a-zA-Z]').hasMatch(char)) {
-        result.write(char.toUpperCase());
-        capitalizeNext = false;
-      } else {
-        result.write(char);
-      }
-      if (char == '.' || char == '?' || char == '!') {
-        capitalizeNext = true;
-      }
-    }
-    return result.toString();
-  }
-
-  String _convertFullWidthToHalfWidth(String text) {
-    var result = text;
-    final fullToHalf = {
-      '，': ',',
-      '。': '.',
-      '！': '!',
-      '？': '?',
-      '：': ':',
-      '；': ';',
-      '（': '(',
-      '）': ')',
-      '【': '[',
-      '】': ']',
-      '《': '<',
-      '》': '>',
-      '“': '"',
-      '”': '"',
-      '‘': "'",
-      '’': "'",
-      '、': ',',
-      '—': '-',
-      '～': '~',
-      '　': ' ',
-    };
-    fullToHalf.forEach((full, half) {
-      result = result.replaceAll(full, half);
-    });
-    return result;
-  }
-
   void _swapLanguages() {
     setState(() {
       final temp = _selectedSourceLang;
@@ -1450,7 +1092,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
             ),
 
             // --- TTS Speaker & Speed Settings ---
-            if (_isTtsInitialized && _maxSpeakerID > 0) ...[
+            if (_ttsService.isInitialized && _ttsService.maxSpeakerId > 0) ...[
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -1471,7 +1113,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                             child: DropdownButton<int>(
                               value: _selectedSpeakerId,
                               isExpanded: true,
-                              items: List.generate(_maxSpeakerID + 1, (i) {
+                              items: List.generate(_ttsService.maxSpeakerId + 1, (i) {
                                 return DropdownMenuItem<int>(
                                   value: i,
                                   child: Text('Speaker #$i'),
@@ -1541,7 +1183,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   }
 
   Widget _buildSetupIndicator() {
-    if (_isAsrInitialized && (_mtMode == 'llm' ? _isLlmInitialized : _isNmtInitialized) && _isTtsInitialized) {
+    if (_asr.isInitialized && (_nmtBackend?.isLoaded ?? false) && _ttsService.isInitialized) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
@@ -1968,10 +1610,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 width: 52,
                 height: 52,
                 child: AnimatedOpacity(
-                  opacity: (_isTtsInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
+                  opacity: (_ttsService.isInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: IgnorePointer(
-                    ignoring: !(_isTtsInitialized && _cascadeSegments.isNotEmpty),
+                    ignoring: !(_ttsService.isInitialized && _cascadeSegments.isNotEmpty),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: (_isTtsPlaying || _isProcessingTtsQueue)

@@ -15,13 +15,16 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   HardwareKeyboard.instance.clearState();
 
-  // Configure AudioPlayer globally for iOS to ignore the silent/mute switch
+  // Configure AudioPlayer globally for iOS to ignore the silent/mute switch.
+  // NB: `.defaultToSpeaker` is only valid with the `.playAndRecord` category —
+  // using it here with `.playback` makes iOS reject the whole config (-50).
+  // `.playback` already routes to the speaker and bypasses the mute switch,
+  // so `.defaultToSpeaker` is both redundant and invalid in this context.
   await AudioPlayer.global.setGlobalAudioContext(AudioContext(
     iOS: AudioContextIOS(
       category: AVAudioSessionCategory.playback,
       options: const [
         AVAudioSessionOptions.mixWithOthers,
-        AVAudioSessionOptions.defaultToSpeaker,
       ],
     ),
   ));

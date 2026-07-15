@@ -1,12 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
-import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 import 'model_manager.dart';
 import 'model_management_sheet.dart';
+import 'tts_service.dart';
 
 class TtsScreen extends StatefulWidget {
   const TtsScreen({Key? key}) : super(key: key);
@@ -22,9 +18,7 @@ class _TtsScreenState extends State<TtsScreen> {
   final TextEditingController _logsController = TextEditingController();
 
   late final AudioPlayer _audioPlayer;
-  bool _isInitialized = false;
-  sherpa_onnx.OfflineTts? _tts;
-  int _maxSpeakerID = 0;
+  final TtsService _ttsService = TtsService();
   double _speed = 1.0;
   bool _isSpeaking = false;
 
@@ -102,22 +96,18 @@ class _TtsScreenState extends State<TtsScreen> {
     }
 
     // De-initialize if active model changes
-    if (_isInitialized) {
+    if (_ttsService.isInitialized) {
       _deinitializeEngine();
     }
   }
 
   void _deinitializeEngine() {
-    _tts?.free();
-    _tts = null;
-    setState(() {
-      _isInitialized = false;
-      _maxSpeakerID = 0;
-    });
+    _ttsService.deinitialize();
+    setState(() {});
   }
 
   Future<void> _initializeEngine() async {
-    if (_isInitialized) return;
+    if (_ttsService.isInitialized) return;
     if (_selectedModel == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please import/select a TTS model first!')),
@@ -126,92 +116,10 @@ class _TtsScreenState extends State<TtsScreen> {
     }
 
     try {
-      sherpa_onnx.initBindings();
-
-      final encoderPath = _selectedModel!.ttsEncoderPath;
-      final decoderPath = _selectedModel!.ttsDecoderPath;
-      final isSplit = encoderPath != null && decoderPath != null;
-
-      final tokensPath = _selectedModel!.tokensPath!;
-      final lexiconPath = _selectedModel!.lexiconPath ?? '';
-      final ruleFsts = _selectedModel!.ruleFsts;
-
-      // The espeak-ng data_dir is ONLY for phoneme-based VITS models
-      // (piper/coqui/icefall) that lack a lexicon. Feeding it to jieba/lexicon
-      // models such as melo or fanchen corrupts synthesis (truncated,
-      // non-deterministic audio), so we only resolve it when no lexicon exists.
-      var dataDir = '';
-      if (lexiconPath.isEmpty) {
-        dataDir = _selectedModel!.ttsDataDirPath ?? '';
-        if (dataDir.isEmpty) {
-          final appSupport = await getApplicationSupportDirectory();
-          final globalEspeakDir = Directory(p.join(appSupport.path, 'espeak-ng-data'));
-          if (globalEspeakDir.existsSync()) {
-            dataDir = globalEspeakDir.path;
-          }
-        }
-      }
-
-      final sherpa_onnx.OfflineTtsModelConfig modelConfig;
-
-      if (isSplit && _selectedModel!.ttsEngineType == 'matcha') {
-        final matcha = sherpa_onnx.OfflineTtsMatchaModelConfig(
-          acousticModel: encoderPath,
-          vocoder: decoderPath,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          matcha: matcha,
-        );
-      } else if (isSplit && _selectedModel!.ttsEngineType == 'vits_online') {
-        // Pass directory path so C++ auto-detection (offline-tts-impl.cc)
-        // finds encoder.onnx/decoder.onnx and routes to OnlineTtsVitsImpl.
-        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-          model: _selectedModel!.path,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-          dictDir: _selectedModel!.ttsDictDirPath ?? '',
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          vits: vits,
-        );
-      } else {
-        final modelPath = _selectedModel!.ttsModelPath ?? '';
-        if (modelPath.isEmpty) {
-          throw Exception('VITS model file not found in directory ${_selectedModel!.path}');
-        }
-        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
-          model: modelPath,
-          lexicon: lexiconPath,
-          tokens: tokensPath,
-          dataDir: dataDir,
-          dictDir: _selectedModel!.ttsDictDirPath ?? '',
-        );
-        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
-          numThreads: 2,
-          vits: vits,
-        );
-      }
-
-      final config = sherpa_onnx.OfflineTtsConfig(
-        model: modelConfig,
-        ruleFsts: ruleFsts,
-      );
-
-      _tts = sherpa_onnx.OfflineTts(config);
+      await _ttsService.initialize(_selectedModel!);
 
       setState(() {
-        _maxSpeakerID = _tts?.numSpeakers ?? 0;
-        if (_maxSpeakerID > 0) {
-          _maxSpeakerID -= 1;
-        }
         _selectedSpeakerId = 0;
-        _isInitialized = true;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -225,36 +133,18 @@ class _TtsScreenState extends State<TtsScreen> {
     }
   }
 
-  Future<String> _generateWavFilename(String suffix) async {
-    final dir = await getTemporaryDirectory();
-    final name = 'tts-${DateTime.now().millisecondsSinceEpoch}$suffix.wav';
-    return p.join(dir.path, name);
-  }
-
   Future<void> _speak() async {
-    if (!_isInitialized) {
+    if (!_ttsService.isInitialized) {
       await _initializeEngine();
     }
-    if (_tts == null) return;
+    if (_ttsService.tts == null) return;
 
-    var text = _textController.text.trim();
+    final text = _textController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter some text to speak.')),
       );
       return;
-    }
-
-    final encoderPath = _selectedModel!.ttsEncoderPath;
-    final decoderPath = _selectedModel!.ttsDecoderPath;
-    final isSplit = encoderPath != null && decoderPath != null;
-
-    if (isSplit) {
-      text = _selectedModel!.normalizeText(text);
-      debugPrint('[TTS] Text after online normalization: $text');
-    } else {
-      text = _convertFullWidthToHalfWidth(text);
-      debugPrint('[TTS] Text after offline converting full-width to half-width: $text');
     }
 
     final sid = _selectedSpeakerId;
@@ -263,18 +153,15 @@ class _TtsScreenState extends State<TtsScreen> {
       _logsController.value = const TextEditingValue(text: 'Synthesizing...');
       await _audioPlayer.stop();
 
-      final stopwatch = Stopwatch()..start();
-
-      final genConfig = sherpa_onnx.OfflineTtsGenerationConfig(
-        sid: sid,
-        speed: _speed,
-        silenceScale: 0.2,
-      );
-
       int chunkCount = 0;
-      final audio = _tts!.generateWithConfig(
+
+      final result = await _ttsService.synthesize(
         text: text,
-        config: genConfig,
+        model: _selectedModel!,
+        speakerId: sid,
+        speed: _speed,
+        prefix: 'tts',
+        suffix: '-sid-$sid-speed-${_speed.toStringAsFixed(1)}',
         onProgress: (samples, progress) {
           chunkCount++;
           setState(() {
@@ -288,79 +175,22 @@ class _TtsScreenState extends State<TtsScreen> {
           return 1; // 1 to continue generation
         },
       );
-      
-      final suffix = '-sid-$sid-speed-${_speed.toStringAsFixed(1)}';
-      final filename = await _generateWavFilename(suffix);
 
-      // Ensure parent directory exists on disk before C++ std::ofstream writes to it
-      final file = File(filename);
-      if (!await file.parent.exists()) {
-        await file.parent.create(recursive: true);
-      }
+      setState(() {
+        _logsController.value = TextEditingValue(
+          text: 'WAV Saved to: ${result.wavPath}\n'
+              'Inference Speed Details:\n'
+              ' - Elapsed Time: ${result.elapsedSec.toStringAsFixed(3)} s\n'
+              ' - Audio Duration: ${result.audioDurationSec.toStringAsFixed(3)} s\n'
+              ' - RTF (Real-Time Factor): ${result.rtf.toStringAsFixed(3)}\n',
+        );
+      });
 
-      debugPrint('[TTS] Writing WAV: filename=$filename, samples=${audio.samples.length}, sampleRate=${audio.sampleRate}');
-      // Write PCM data to a temporary WAV file
-      final ok = sherpa_onnx.writeWave(
-        filename: filename,
-        samples: audio.samples,
-        sampleRate: audio.sampleRate,
-      );
-
-      if (ok) {
-        stopwatch.stop();
-        final elapsed = stopwatch.elapsed.inMilliseconds / 1000.0;
-        final waveDuration = audio.samples.length / audio.sampleRate;
-        final rtf = elapsed / waveDuration;
-
-        setState(() {
-          _logsController.value = TextEditingValue(
-            text: 'WAV Saved to: $filename\n'
-                'Inference Speed Details:\n'
-                ' - Elapsed Time: ${elapsed.toStringAsFixed(3)} s\n'
-                ' - Audio Duration: ${waveDuration.toStringAsFixed(3)} s\n'
-                ' - RTF (Real-Time Factor): ${rtf.toStringAsFixed(3)}\n',
-          );
-        });
-
-        // Play the generated WAV file
-        await _audioPlayer.play(DeviceFileSource(filename));
-      } else {
-        _logsController.value = const TextEditingValue(text: 'Failed to save synthesized WAV file.');
-      }
+      await _audioPlayer.play(DeviceFileSource(result.wavPath));
     } catch (e) {
       debugPrint('TTS speak error: $e');
       _logsController.value = TextEditingValue(text: 'Error: $e');
     }
-  }
-
-  String _convertFullWidthToHalfWidth(String text) {
-    var result = text;
-    final fullToHalf = {
-      '，': ',',
-      '。': '.',
-      '！': '!',
-      '？': '?',
-      '：': ':',
-      '；': ';',
-      '（': '(',
-      '）': ')',
-      '【': '[',
-      '】': ']',
-      '《': '<',
-      '》': '>',
-      '“': '"',
-      '”': '"',
-      '‘': "'",
-      '’': "'",
-      '、': ',',
-      '—': '-',
-      '～': '~',
-      '　': ' ',
-    };
-    fullToHalf.forEach((full, half) {
-      result = result.replaceAll(full, half);
-    });
-    return result;
   }
 
   Future<void> _stop() async {
@@ -492,7 +322,7 @@ class _TtsScreenState extends State<TtsScreen> {
                               } else {
                                 _textController.text = 'Hello! This is a real-time text-to-speech demonstration powered by sherpa-onnx in Flutter.';
                               }
-                              if (_isInitialized) {
+                              if (_ttsService.isInitialized) {
                                 _deinitializeEngine();
                               }
                             });
@@ -511,13 +341,13 @@ class _TtsScreenState extends State<TtsScreen> {
           ElevatedButton(
             onPressed: _selectedModel == null
                 ? null
-                : (_isInitialized ? _deinitializeEngine : _initializeEngine),
+                : (_ttsService.isInitialized ? _deinitializeEngine : _initializeEngine),
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.all(14),
-              backgroundColor: _isInitialized ? Colors.red : Colors.blue,
+              backgroundColor: _ttsService.isInitialized ? Colors.red : Colors.blue,
               foregroundColor: Colors.white,
             ),
-            child: Text(_isInitialized ? 'Deinitialize TTS Engine' : 'Initialize TTS Engine'),
+            child: Text(_ttsService.isInitialized ? 'Deinitialize TTS Engine' : 'Initialize TTS Engine'),
           ),
           const SizedBox(height: 20),
           
@@ -525,7 +355,7 @@ class _TtsScreenState extends State<TtsScreen> {
           const SizedBox(height: 10),
           
           // Synthesizer Section
-          if (_isInitialized) ...[
+          if (_ttsService.isInitialized) ...[
             DropdownButtonFormField<int>(
               value: _selectedSpeakerId,
               decoration: const InputDecoration(
@@ -533,7 +363,7 @@ class _TtsScreenState extends State<TtsScreen> {
                 border: OutlineInputBorder(),
                 isDense: true,
               ),
-              items: List.generate(_maxSpeakerID + 1, (index) {
+              items: List.generate(_ttsService.maxSpeakerId + 1, (index) {
                 return DropdownMenuItem(
                   value: index,
                   child: Text('Speaker $index'),
@@ -612,7 +442,7 @@ class _TtsScreenState extends State<TtsScreen> {
   @override
   void dispose() {
     ModelManager.changeNotifier.removeListener(_loadModels);
-    _tts?.free();
+    _ttsService.deinitialize();
     _audioPlayer.dispose();
     super.dispose();
   }
