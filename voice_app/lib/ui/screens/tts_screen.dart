@@ -328,8 +328,8 @@ class _TtsScreenState extends State<TtsScreen> {
                           ),
                           IconButton(
                             onPressed: _openModelManagement,
-                            icon: const Icon(Icons.settings_outlined, color: Color(0xFF1E3C72)),
-                            tooltip: 'Manage Local Models',
+                            icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF1E3C72)),
+                            tooltip: 'Model Repository',
                           ),
                         ],
                       ),
@@ -355,7 +355,7 @@ class _TtsScreenState extends State<TtsScreen> {
                                 const SizedBox(width: 8),
                                 const Expanded(
                                   child: Text(
-                                    'No local TTS models found. Please click the settings icon to import one.',
+                                    'No local TTS models found. Please click the model repository icon to import one.',
                                     style: TextStyle(fontSize: 12, color: Color(0xFFC05621)),
                                   ),
                                 ),

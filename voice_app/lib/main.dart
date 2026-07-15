@@ -212,19 +212,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                   centerTitle: true,
                                   actions: [
                                     IconButton(
-                                      icon: const Icon(Icons.folder_shared_outlined),
-                                      onPressed: () {
-                                        showModalBottomSheet(
-                                          context: context,
-                                          isScrollControlled: true,
-                                          backgroundColor: Colors.transparent,
-                                          builder: (context) => ModelManagementSheet(
-                                            initialType: 'asr',
-                                            onModelsChanged: () {},
-                                          ),
-                                        );
-                                      },
-                                      tooltip: 'Manage Models',
+                                      icon: const Icon(Icons.settings_outlined),
+                                      onPressed: () => showSettingsBottomSheet(context),
+                                      tooltip: 'Settings',
                                     ),
                                     const SizedBox(width: 8),
                                   ],
@@ -256,19 +246,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                   centerTitle: true,
                                   actions: [
                                     IconButton(
-                                      icon: const Icon(Icons.folder_shared_outlined),
-                                      onPressed: () {
-                                        showModalBottomSheet(
-                                          context: context,
-                                          isScrollControlled: true,
-                                          backgroundColor: Colors.transparent,
-                                          builder: (context) => ModelManagementSheet(
-                                            initialType: 'tts',
-                                            onModelsChanged: () {},
-                                          ),
-                                        );
-                                      },
-                                      tooltip: 'Manage Models',
+                                      icon: const Icon(Icons.settings_outlined),
+                                      onPressed: () => showSettingsBottomSheet(context),
+                                      tooltip: 'Settings',
                                     ),
                                     const SizedBox(width: 8),
                                   ],
@@ -311,21 +291,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                           onPressed: () => showSettingsBottomSheet(context),
                                           tooltip: 'Settings',
                                         ),
-                                        IconButton(
-                                          icon: const Icon(Icons.folder_shared_outlined),
-                                          onPressed: () {
-                                            showModalBottomSheet(
-                                              context: context,
-                                              isScrollControlled: true,
-                                              backgroundColor: Colors.transparent,
-                                              builder: (context) => ModelManagementSheet(
-                                                initialType: 'nmt',
-                                                onModelsChanged: () {},
-                                              ),
-                                            );
-                                          },
-                                          tooltip: 'Manage Models',
-                                        ),
                                         const SizedBox(width: 8),
                                       ],
                                     ),
@@ -364,21 +329,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                           icon: const Icon(Icons.settings_outlined),
                                           onPressed: () => showSettingsBottomSheet(context),
                                           tooltip: 'Settings',
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.folder_shared_outlined),
-                                          onPressed: () {
-                                            showModalBottomSheet(
-                                              context: context,
-                                              isScrollControlled: true,
-                                              backgroundColor: Colors.transparent,
-                                              builder: (context) => ModelManagementSheet(
-                                                initialType: 'llm',
-                                                onModelsChanged: () {},
-                                              ),
-                                            );
-                                          },
-                                          tooltip: 'Manage Models',
                                         ),
                                         const SizedBox(width: 8),
                                       ],
@@ -421,21 +371,6 @@ class _MyHomePageState extends State<MyHomePage> {
                                     icon: const Icon(Icons.settings_outlined),
                                     onPressed: () => showSettingsBottomSheet(context),
                                     tooltip: 'Settings',
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(Icons.folder_shared_outlined),
-                                    onPressed: () {
-                                      showModalBottomSheet(
-                                        context: context,
-                                        isScrollControlled: true,
-                                        backgroundColor: Colors.transparent,
-                                        builder: (context) => ModelManagementSheet(
-                                          initialType: 'asr',
-                                          onModelsChanged: () {},
-                                        ),
-                                      );
-                                    },
-                                    tooltip: 'Manage Models',
                                   ),
                                   const SizedBox(width: 8),
                                 ],

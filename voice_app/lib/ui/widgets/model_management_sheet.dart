@@ -377,10 +377,10 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                   Expanded(
                     child: SegmentedButton<String>(
                       segments: const [
-                        ButtonSegment(value: 'asr', label: Text('ASR (Speech-to-Text)'), icon: Icon(Icons.mic)),
-                        ButtonSegment(value: 'tts', label: Text('TTS (Text-to-Speech)'), icon: Icon(Icons.speaker_notes)),
-                        ButtonSegment(value: 'nmt', label: Text('NMT (Translation)'), icon: Icon(Icons.translate)),
-                        ButtonSegment(value: 'llm', label: Text('LLM (Translate)'), icon: Icon(Icons.psychology)),
+                        ButtonSegment(value: 'asr', label: Text('ASR'), icon: Icon(Icons.mic)),
+                        ButtonSegment(value: 'tts', label: Text('TTS'), icon: Icon(Icons.speaker_notes)),
+                        ButtonSegment(value: 'nmt', label: Text('NMT'), icon: Icon(Icons.translate)),
+                        ButtonSegment(value: 'llm', label: Text('LLM'), icon: Icon(Icons.psychology)),
                       ],
                       selected: {_currentType},
                       onSelectionChanged: (value) {
@@ -628,7 +628,6 @@ class ModelTile extends StatefulWidget {
 class _ModelTileState extends State<ModelTile> {
   String _sizeStr = 'Calculating size...';
   List<Map<String, dynamic>> _files = [];
-  bool _showDetails = false;
 
   @override
   void initState() {
@@ -727,15 +726,137 @@ class _ModelTileState extends State<ModelTile> {
     }
   }
 
+  void _showModelDetailsDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              Icon(
+                widget.model.type == 'llm'
+                    ? Icons.psychology
+                    : widget.model.type == 'asr'
+                        ? Icons.mic
+                        : widget.model.type == 'tts'
+                            ? Icons.speaker_notes
+                            : Icons.translate,
+                color: Colors.blue,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Model Details',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+          content: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.8,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildDetailRow('Model Name', widget.model.name),
+                  _buildDetailRow('Type', widget.model.type.toUpperCase()),
+                  if (widget.model.type != 'llm')
+                    _buildDetailRow('Languages', widget.model.languages.join(', ')),
+                  if (widget.model.type == 'asr' || widget.model.type == 'tts')
+                    _buildDetailRow('Streaming Support', widget.model.isStreaming ? 'Streaming' : 'Non-Streaming'),
+                  _buildDetailRow('Total Size', _sizeStr),
+                  _buildDetailRow('Location', widget.model.path),
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Files in Directory:',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey),
+                  ),
+                  const SizedBox(height: 8),
+                  if (_files.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text('No files found', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                    )
+                  else
+                    ..._files.map((file) {
+                      return Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4.0),
+                        padding: const EdgeInsets.all(8.0),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[50],
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: Colors.grey[200]!),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                file['name'] as String,
+                                style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _formatBytes(file['size'] as int),
+                              style: const TextStyle(fontSize: 12, color: Colors.grey, fontFamily: 'monospace'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 13, color: Colors.black87),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       elevation: 1,
-      child: Column(
-        children: [
-          ListTile(
-            leading: CircleAvatar(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
               backgroundColor: Colors.blue[50],
               foregroundColor: Colors.blue,
               child: Text(widget.model.type == 'llm'
@@ -746,116 +867,110 @@ class _ModelTileState extends State<ModelTile> {
                           : widget.model.languages.first.toUpperCase())
                       : '??'),
             ),
-            title: Text(widget.model.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (widget.model.type != 'llm')
-                  Text('Languages: ${widget.model.languages.join(", ")}', style: const TextStyle(fontSize: 12)),
-                if (widget.model.type == 'asr' || widget.model.type == 'tts') ...[
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: widget.model.isStreaming ? Colors.green[50] : Colors.orange[50],
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: widget.model.isStreaming ? Colors.green[200]! : Colors.orange[200]!,
-                      ),
-                    ),
-                    child: Text(
-                      widget.model.isStreaming ? 'Streaming' : 'Non-Streaming',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        color: widget.model.isStreaming ? Colors.green[700] : Colors.orange[700],
-                      ),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 4),
-                Text('Size: $_sizeStr', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.blue)),
-                Text('Location: ${p.basename(widget.model.path)}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-              ],
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: Icon(_showDetails ? Icons.expand_less : Icons.info_outline, color: Colors.grey[700]),
-                  onPressed: () {
-                    setState(() {
-                      _showDetails = !_showDetails;
-                    });
-                  },
-                  tooltip: 'View Files',
-                ),
-                if (widget.model.type != 'llm')
-                  IconButton(
-                    icon: const Icon(Icons.language, color: Colors.teal),
-                    onPressed: () => _manageLanguages(context),
-                    tooltip: 'Manage Languages',
-                  ),
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.blue),
-                  onPressed: widget.onRename,
-                  tooltip: 'Rename Model',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: widget.onDelete,
-                  tooltip: 'Delete Model',
-                ),
-              ],
-            ),
-          ),
-          if (_showDetails)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.grey[50],
-                borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-              ),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Divider(height: 1),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Files in Directory:',
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey),
+                  // First Line: Name (single line overflow)
+                  Text(
+                    widget.model.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  if (_files.isEmpty)
-                    const Text('No files found', style: TextStyle(fontSize: 11, color: Colors.grey))
-                  else
-                    ..._files.map((file) {
-                      return Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2.0),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const SizedBox(height: 6),
+                  // Second Line: Info on the left, buttons on the right
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Text(
-                                file['name'] as String,
-                                style: const TextStyle(fontSize: 11, fontFamily: 'monospace'),
+                            if (widget.model.type != 'llm')
+                              Text(
+                                'Languages: ${widget.model.languages.join(", ")}',
+                                style: const TextStyle(fontSize: 12, color: Colors.black87),
+                                maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),
-                            ),
-                            const SizedBox(width: 8),
+                            if (widget.model.type == 'asr' || widget.model.type == 'tts') ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: widget.model.isStreaming ? Colors.green[50] : Colors.orange[50],
+                                      borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(
+                                        color: widget.model.isStreaming ? Colors.green[200]! : Colors.orange[200]!,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      widget.model.isStreaming ? 'Streaming' : 'Non-Streaming',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: widget.model.isStreaming ? Colors.green[700] : Colors.orange[700],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                            const SizedBox(height: 4),
                             Text(
-                              _formatBytes(file['size'] as int),
-                              style: const TextStyle(fontSize: 11, color: Colors.grey, fontFamily: 'monospace'),
+                              'Size: $_sizeStr',
+                              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Colors.blue),
                             ),
                           ],
                         ),
-                      );
-                    }).toList(),
-                  const SizedBox(height: 8),
+                      ),
+                      const SizedBox(width: 8),
+                      // Buttons
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.info_outline, color: Colors.grey, size: 20),
+                            onPressed: () => _showModelDetailsDialog(context),
+                            tooltip: 'View Details',
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(6),
+                          ),
+                          if (widget.model.type != 'llm')
+                            IconButton(
+                              icon: const Icon(Icons.language, color: Colors.teal, size: 20),
+                              onPressed: () => _manageLanguages(context),
+                              tooltip: 'Manage Languages',
+                              constraints: const BoxConstraints(),
+                              padding: const EdgeInsets.all(6),
+                            ),
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue, size: 20),
+                            onPressed: widget.onRename,
+                            tooltip: 'Rename Model',
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(6),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                            onPressed: widget.onDelete,
+                            tooltip: 'Delete Model',
+                            constraints: const BoxConstraints(),
+                            padding: const EdgeInsets.all(6),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }

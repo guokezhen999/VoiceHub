@@ -372,8 +372,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
                           ),
                           IconButton(
                             onPressed: _openModelManagement,
-                            icon: const Icon(Icons.settings_outlined, color: Color(0xFF1E3C72)),
-                            tooltip: 'Manage Translation Models',
+                            icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF1E3C72)),
+                            tooltip: 'Model Repository',
                           ),
                         ],
                       ),
@@ -515,9 +515,9 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                 Expanded(
                                   child: Text(
                                     _isLlamaBackend
-                                        ? 'No GGUF model installed.\nPlease click the settings icon to import a model.'
+                                        ? 'No GGUF model installed.\nPlease click the model repository icon to import a model.'
                                         : 'No local NMT model installed for $_selectedSourceLang to $_selectedTargetLang.\n'
-                                            'Please click the settings icon above to import a model.',
+                                            'Please click the model repository icon above to import a model.',
                                     style: const TextStyle(color: Color(0xFFC05621), fontSize: 12),
                                   ),
                                 ),

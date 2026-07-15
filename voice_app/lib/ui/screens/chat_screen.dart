@@ -405,8 +405,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 IconButton(
                   onPressed: _openModelManagement,
-                  icon: const Icon(Icons.settings_outlined, color: Color(0xFF1E3C72)),
-                  tooltip: 'Manage LLM Models',
+                  icon: const Icon(Icons.inventory_2_outlined, color: Color(0xFF1E3C72)),
+                  tooltip: 'Model Repository',
                 ),
               ],
             ),
@@ -429,7 +429,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        'No GGUF model imported.\nClick the settings icon to import a model.',
+                        'No GGUF model imported.\nClick the model repository icon to import a model.',
                         style: TextStyle(color: Color(0xFFC05621), fontSize: 12),
                       ),
                     ),
