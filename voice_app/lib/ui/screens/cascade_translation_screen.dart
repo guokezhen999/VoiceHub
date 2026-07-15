@@ -1,18 +1,19 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:collection';
 import 'package:flutter/material.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 
-import 'asr_service.dart';
-import 'tts_service.dart';
-import 'model_manager.dart';
-import 'model_management_sheet.dart';
-import 'native_nmt_service.dart';
-import 'llama_nmt_service.dart';
-import 'nmt_service_common.dart';
-import 'voice_engine_ffi_bridge.dart';
-import 'main.dart'; // To access showPerfMetricsNotifier if needed
+import 'package:voice_app/services/asr_service.dart';
+import 'package:voice_app/services/tts_service.dart';
+import 'package:voice_app/models/model_manager.dart';
+import 'package:voice_app/ui/widgets/model_management_sheet.dart';
+import 'package:voice_app/services/native_nmt_service.dart';
+import 'package:voice_app/services/llama_nmt_service.dart';
+import 'package:voice_app/services/nmt_service_common.dart';
+import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
+import 'package:voice_app/main.dart'; // To access showPerfMetricsNotifier if needed
 
 /// A single segment pairing an ASR sentence with its MT translation.
 class _CascadeSegment {
@@ -52,8 +53,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   List<ModelInfo> _allNmtModels = [];
   List<ModelInfo> _allLlmModels = [];
   List<ModelInfo> _allTtsModels = [];
-
   bool _loadingModels = true;
+  bool _isConfigExpanded = true;
 
   // Selected Options
   String _selectedSourceLang = 'Chinese';
@@ -227,6 +228,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _currentStep = 0;
       _asrText = "";
       _mtText = "";
+      _isConfigExpanded = true;
     });
   }
 
@@ -330,6 +332,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
         _selectedSpeakerId = 0;
         _isInitializingTTS = false;
         _pipelineStatus = "Ready";
+        _isConfigExpanded = false;
       });
     } catch (e) {
       setState(() => _isInitializingTTS = false);
@@ -974,210 +977,241 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     List<ModelInfo> filteredTtss,
   ) {
     final targetPair = '$_selectedSourceLang-$_selectedTargetLang';
-    return Material(
-      color: Colors.white,
-      elevation: 3,
-      shadowColor: Colors.black.withOpacity(0.04),
-      borderRadius: BorderRadius.circular(20),
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          title: Row(
-            children: [
-              const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF1E3C72)),
-              const SizedBox(width: 8),
-              const Text(
-                'Engine Model Settings',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-              ),
-              const Spacer(),
-              _buildSetupIndicator(),
-            ],
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Divider(height: 1, color: Color(0xFFEEEEEE)),
-            const SizedBox(height: 16),
-
-            // --- ASR Model Dropdown ---
-            _buildDropdownLabel("1. Speech Recognition Model (ASR)", 'asr'),
-            const SizedBox(height: 6),
-            _buildModelDropdown<ModelInfo>(
-              value: _selectedAsrModel,
-              items: filteredAsrs,
-              hintText: 'Select ASR Model',
-              onChanged: (val) {
-                setState(() {
-                  _selectedAsrModel = val;
-                  _deinitializeAsr();
-                });
-              },
-              displayString: (model) => "${model.name} (${model.isStreaming ? 'Streaming' : 'Offline'})",
-            ),
-            const SizedBox(height: 16),
-
-            // --- MT Mode Selector ---
-            const Text('2. Translation (MT) Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildMtModeButton(
-                    label: 'Llama GGUF',
-                    value: 'llm',
-                    icon: Icons.psychology_rounded,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildMtModeButton(
-                    label: 'Opus MT (ONNX)',
-                    value: 'nmt',
-                    icon: Icons.shuffle_on_rounded,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // --- MT Model Dropdown ---
-            _buildDropdownLabel(
-              _mtMode == 'llm' ? "Translation Model (LLM)" : "Translation Model (Opus MT)",
-              _mtMode == 'llm' ? 'llm' : 'nmt',
-            ),
-            const SizedBox(height: 6),
-            _mtMode == 'llm'
-                ? _buildModelDropdown<ModelInfo>(
-                    value: _selectedLlmModel,
-                    items: filteredLlms,
-                    hintText: 'Select LLM Model',
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedLlmModel = val;
-                        _deinitializeMt();
-                      });
-                    },
-                    displayString: (model) => model.name,
-                  )
-                : _buildModelDropdown<ModelInfo>(
-                    value: _selectedNmtModel,
-                    items: filteredNmts,
-                    hintText: 'No Marian Model for $targetPair',
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedNmtModel = val;
-                        _deinitializeMt();
-                      });
-                    },
-                    displayString: (model) => model.name,
-                  ),
-            const SizedBox(height: 16),
-
-            // --- TTS Model Dropdown ---
-            _buildDropdownLabel("3. Speech Synthesis Model (TTS)", 'tts'),
-            const SizedBox(height: 6),
-            _buildModelDropdown<ModelInfo>(
-              value: _selectedTtsModel,
-              items: filteredTtss,
-              hintText: 'Select TTS Model',
-              onChanged: (val) {
-                setState(() {
-                  _selectedTtsModel = val;
-                  _deinitializeTts();
-                });
-              },
-              displayString: (model) => "${model.name} (${model.ttsEngineType})",
-            ),
-
-            // --- TTS Speaker & Speed Settings ---
-            if (_ttsService.isInitialized && _ttsService.maxSpeakerId > 0) ...[
-              const SizedBox(height: 16),
-              Row(
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              setState(() {
+                _isConfigExpanded = !_isConfigExpanded;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Row(
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  const Icon(Icons.settings_outlined, size: 20, color: Color(0xFF1E3C72)),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Engine Model Settings',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    _isConfigExpanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    color: Colors.grey.shade600,
+                    size: 20,
+                  ),
+                  const Spacer(),
+                  _buildSetupIndicator(),
+                ],
+              ),
+            ),
+          ),
+          if (_isConfigExpanded) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Divider(height: 1, color: Color(0xFFEEEEEE)),
+                  const SizedBox(height: 16),
+
+                  // --- ASR Model Dropdown ---
+                  _buildDropdownLabel("1. Speech Recognition Model (ASR)", 'asr'),
+                  const SizedBox(height: 6),
+                  _buildModelDropdown<ModelInfo>(
+                    value: _selectedAsrModel,
+                    items: filteredAsrs,
+                    hintText: 'Select ASR Model',
+                    onChanged: (val) {
+                      setState(() {
+                        _selectedAsrModel = val;
+                        _deinitializeAsr();
+                      });
+                    },
+                    displayString: (model) => "${model.name} (${model.isStreaming ? 'Streaming' : 'Offline'})",
+                  ),
+                  const SizedBox(height: 16),
+
+                  // --- MT Mode Selector ---
+                  const Text('2. Translation (MT) Method', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _buildMtModeButton(
+                          label: 'Llama GGUF',
+                          value: 'llm',
+                          icon: Icons.psychology_rounded,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _buildMtModeButton(
+                          label: 'Opus MT (ONNX)',
+                          value: 'nmt',
+                          icon: Icons.shuffle_on_rounded,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // --- MT Model Dropdown ---
+                  _buildDropdownLabel(
+                    _mtMode == 'llm' ? "Translation Model (LLM)" : "Translation Model (Opus MT)",
+                    _mtMode == 'llm' ? 'llm' : 'nmt',
+                  ),
+                  const SizedBox(height: 6),
+                  _mtMode == 'llm'
+                      ? _buildModelDropdown<ModelInfo>(
+                          value: _selectedLlmModel,
+                          items: filteredLlms,
+                          hintText: 'Select LLM Model',
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedLlmModel = val;
+                              _deinitializeMt();
+                            });
+                          },
+                          displayString: (model) => model.name,
+                        )
+                      : _buildModelDropdown<ModelInfo>(
+                          value: _selectedNmtModel,
+                          items: filteredNmts,
+                          hintText: 'No Marian Model for $targetPair',
+                          onChanged: (val) {
+                            setState(() {
+                              _selectedNmtModel = val;
+                              _deinitializeMt();
+                            });
+                          },
+                          displayString: (model) => model.name,
+                        ),
+                  const SizedBox(height: 16),
+
+                  // --- TTS Model Dropdown ---
+                  _buildDropdownLabel("3. Speech Synthesis Model (TTS)", 'tts'),
+                  const SizedBox(height: 6),
+                  _buildModelDropdown<ModelInfo>(
+                    value: _selectedTtsModel,
+                    items: filteredTtss,
+                    hintText: 'Select TTS Model',
+                    onChanged: (val) {
+                      setState(() {
+                        _selectedTtsModel = val;
+                        _deinitializeTts();
+                      });
+                    },
+                    displayString: (model) => "${model.name} (${model.ttsEngineType})",
+                  ),
+
+                  // --- TTS Speaker & Speed Settings ---
+                  if (_ttsService.isInitialized && _ttsService.maxSpeakerId > 0) ...[
+                    const SizedBox(height: 16),
+                    Row(
                       children: [
-                        const Text('TTS Speaker ID', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.grey.shade200),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text('TTS Speaker ID', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade50,
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(color: Colors.grey.shade200),
+                                ),
+                                child: DropdownButtonHideUnderline(
+                                  child: DropdownButton<int>(
+                                    value: _selectedSpeakerId,
+                                    isExpanded: true,
+                                    items: List.generate(_ttsService.maxSpeakerId + 1, (i) {
+                                      return DropdownMenuItem<int>(
+                                        value: i,
+                                        child: Text('Speaker #$i'),
+                                      );
+                                    }),
+                                    onChanged: (val) {
+                                      if (val != null) {
+                                        setState(() {
+                                          _selectedSpeakerId = val;
+                                        });
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: _selectedSpeakerId,
-                              isExpanded: true,
-                              items: List.generate(_ttsService.maxSpeakerId + 1, (i) {
-                                return DropdownMenuItem<int>(
-                                  value: i,
-                                  child: Text('Speaker #$i'),
-                                );
-                              }),
-                              onChanged: (val) {
-                                if (val != null) {
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('Speed: ${_ttsSpeed.toStringAsFixed(1)}x', style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                              Slider(
+                                value: _ttsSpeed,
+                                min: 0.5,
+                                max: 2.0,
+                                divisions: 15,
+                                label: '${_ttsSpeed.toStringAsFixed(1)}x',
+                                activeColor: const Color(0xFF1E3C72),
+                                onChanged: (val) {
                                   setState(() {
-                                    _selectedSpeakerId = val;
+                                    _ttsSpeed = val;
                                   });
-                                }
-                              },
-                            ),
+                                },
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Speed: ${_ttsSpeed.toStringAsFixed(1)}x', style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                        Slider(
-                          value: _ttsSpeed,
-                          min: 0.5,
-                          max: 2.0,
-                          divisions: 15,
-                          label: '${_ttsSpeed.toStringAsFixed(1)}x',
-                          activeColor: const Color(0xFF1E3C72),
-                          onChanged: (val) {
-                            setState(() {
-                              _ttsSpeed = val;
-                            });
+                  ],
+
+                  const SizedBox(height: 20),
+
+                  // --- Initialize Button ---
+                  ElevatedButton.icon(
+                    onPressed: _loadingModels
+                        ? null
+                        : () {
+                            _initializeAllEngines();
                           },
-                        ),
-                      ],
+                    icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
+                    label: const Text('Initialize Selected Engines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF1E3C72),
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 2,
                     ),
                   ),
                 ],
               ),
-            ],
-
-            const SizedBox(height: 20),
-
-            // --- Initialize Button ---
-            ElevatedButton.icon(
-              onPressed: _loadingModels
-                  ? null
-                  : () {
-                      _initializeAllEngines();
-                    },
-              icon: const Icon(Icons.flash_on_rounded, color: Colors.white),
-              label: const Text('Initialize Selected Engines', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF1E3C72),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 2,
-              ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }

@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'asr_screen.dart';
-import 'tts_screen.dart';
-import 'translation_screen.dart';
-import 'chat_screen.dart';
-import 'model_manager.dart';
-import 'model_management_sheet.dart';
-import 'native_nmt_service.dart';
-import 'llama_nmt_service.dart';
-import 'cascade_translation_screen.dart';
+import 'package:voice_app/ui/screens/asr_screen.dart';
+import 'package:voice_app/ui/screens/tts_screen.dart';
+import 'package:voice_app/ui/screens/translation_screen.dart';
+import 'package:voice_app/ui/screens/chat_screen.dart';
+import 'package:voice_app/models/model_manager.dart';
+import 'package:voice_app/ui/widgets/model_management_sheet.dart';
+import 'package:voice_app/services/native_nmt_service.dart';
+import 'package:voice_app/services/llama_nmt_service.dart';
+import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

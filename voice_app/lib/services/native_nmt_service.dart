@@ -6,25 +6,23 @@ import 'dart:isolate';
 
 import 'package:ffi/ffi.dart';
 
-import 'llamacpp_ffi_bridge.dart';
-import 'model_manager.dart';
-import 'nmt_service_common.dart';
+import 'package:voice_app/ffi/opus_mt_ffi_bridge.dart';
+import 'package:voice_app/models/model_manager.dart';
+import 'package:voice_app/services/nmt_service_common.dart';
 
-// FFI callback type for streaming token callbacks from C++.
-typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
-
-/// NMT service backed by llama.cpp + Metal GPU via FFI.
+/// NMT service backed by the native opus-mt C++ library via FFI.
 ///
 /// Translation runs in a dedicated **background isolate** so that the
-/// synchronous llama_decode loop never blocks the Flutter UI thread.
+/// encoder-decoder inference loop (which is synchronous C++ code) never
+/// blocks the Flutter UI thread.
 ///
 /// Usage:
-///   await LlamaNmtService.init();                  // once at startup
-///   final svc = LlamaNmtService();
+///   await NativeNmtService.init();                  // once at startup
+///   final svc = NativeNmtService();
 ///   await svc.loadModel(modelInfo);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
-class LlamaNmtService implements NmtBackend {
+class NativeNmtService implements NmtBackend {
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -32,8 +30,6 @@ class LlamaNmtService implements NmtBackend {
   Completer<void>? _readyCompleter;
 
   ModelInfo? _currentModel;
-  String _sourceLang = 'Chinese';
-  String _targetLang = 'English';
 
   @override
   bool get isLoaded => _worker != null;
@@ -41,58 +37,50 @@ class LlamaNmtService implements NmtBackend {
 
   /// Initialize the native FFI bindings. Call once at app startup.
   static Future<void> init({String? libPath}) async {
-    await LlamaCppBridge.init(libPath: libPath);
+    await OpusMtBridge.init(libPath: libPath);
   }
 
-  /// Load a GGUF model from [modelInfo] in a background isolate.
-  /// [sourceLang] and [targetLang] are the UI-selected languages used for prompts.
+  /// Load a opus-mt model from [modelInfo] in a background isolate.
+  ///
+  /// [sourceLang] and [targetLang] are accepted for interface compatibility
+  /// but are not used by the Marian ONNX backend.
   @override
   Future<void> loadModel(
     ModelInfo modelInfo, {
-    String? sourceLang,
-    String? targetLang,
-    int nCtx = 2048,
+    String? sourceLang,   // unused — Marian selects lang from model dir
+    String? targetLang,   // unused — Marian selects lang from model dir
     int maxLength = 512,
     int numThreads = 4,
-    int nGpuLayers = -1,
   }) async {
-    final resolvedSourceLang = sourceLang ?? 'Chinese';
-    final resolvedTargetLang = targetLang ?? 'English';
-
     if (_currentModel?.path == modelInfo.path && _worker != null) {
       return; // Already loaded.
     }
     await release();
 
-    _sourceLang = resolvedSourceLang;
-    _targetLang = resolvedTargetLang;
-
-    final modelPath = modelInfo.llmModelPath ?? modelInfo.path;
     _readyCompleter = Completer<void>();
     _workerReceivePort = ReceivePort();
 
     _worker = await Isolate.spawn(
       _workerEntry,
-      NmtWorkerInit(
+      _WorkerInit(
         sendPort: _workerReceivePort!.sendPort,
-        modelPath: modelPath,
+        modelDir: modelInfo.path,
         maxLength: maxLength,
         numThreads: numThreads,
-        nGpuLayers: nGpuLayers,
-        sourceLang: resolvedSourceLang,
-        targetLang: resolvedTargetLang,
       ),
     );
 
-    // Wait for the worker to signal it is ready.
+    // Wait for the worker to signal it is ready, or forward any error.
     final completer = Completer<void>();
     _workerReceivePort!.listen((message) {
       if (completer.isCompleted) return;
 
-      if (message == kNmtReady) {
+      // The first message is the _kReady signal (1); ignore it.
+      if (message == _kReady) {
         return;
       }
 
+      // The second message is the worker's request SendPort.
       if (message is SendPort) {
         _workerSendPort = message;
         _currentModel = modelInfo;
@@ -102,7 +90,7 @@ class LlamaNmtService implements NmtBackend {
         return;
       }
 
-      if (message is NmtWorkerError) {
+      if (message is _WorkerError) {
         _readyCompleter?.completeError(Exception(message.error));
         _readyCompleter = null;
         completer.completeError(Exception(message.error));
@@ -114,19 +102,23 @@ class LlamaNmtService implements NmtBackend {
   }
 
   /// Translate [text] in the background isolate.
-  Future<TranslationResult> translate(String text) async {
+  Future<TranslationResult> translate(String text, {String? targetLangToken}) async {
     if (_workerSendPort == null) {
-      throw Exception('Llama NMT model not loaded. Call loadModel() first.');
+      throw Exception('Native NMT model not loaded. Call loadModel() first.');
     }
 
+    final sourceText = (targetLangToken != null && targetLangToken.isNotEmpty)
+        ? '$targetLangToken $text'
+        : text;
+
     final replyPort = ReceivePort();
-    _workerSendPort!.send(NmtTranslateRequest(
-      text: text,
+    _workerSendPort!.send(_TranslateRequest(
+      text: sourceText,
       replyPort: replyPort.sendPort,
     ));
 
     final result = await replyPort.first;
-    if (result is NmtWorkerError) {
+    if (result is _WorkerError) {
       throw Exception(result.error);
     }
     if (result is Map) {
@@ -138,14 +130,35 @@ class LlamaNmtService implements NmtBackend {
         decoderTokens: (result['decoder_tokens'] ?? 0) as int,
       );
     }
-    throw Exception('Unexpected response from Llama worker: $result');
+    throw Exception('Unexpected response from NMT worker: $result');
+  }
+
+  /// Release the loaded model and terminate the background isolate.
+  @override
+  Future<void> release() async {
+    if (_workerSendPort != null) {
+      try {
+        _workerSendPort!.send(_kShutdown);
+      } catch (_) {}
+      _workerSendPort = null;
+    }
+    _workerReceivePort?.close();
+    _workerReceivePort = null;
+    _worker?.kill(priority: Isolate.immediate);
+    _worker = null;
+    _currentModel = null;
+    _readyCompleter = null;
   }
 
   /// Translate [text] with per-token streaming.
+  ///
+  /// Returns a [Stream] that yields cumulative partial translation text
+  /// after each decoder token. When the stream is done, call
+  /// [lastStreamTiming] to get the performance metrics.
   @override
   Stream<String> translateStream(String text) {
     if (_workerSendPort == null) {
-      throw Exception('Llama NMT model not loaded. Call loadModel() first.');
+      throw Exception('Native NMT model not loaded. Call loadModel() first.');
     }
 
     final replyPort = ReceivePort();
@@ -153,27 +166,25 @@ class LlamaNmtService implements NmtBackend {
 
     controller = StreamController<String>(
       onListen: () {
-        _workerSendPort!.send(NmtTranslateStreamRequest(
+        _workerSendPort!.send(_TranslateStreamRequest(
           text: text,
           replyPort: replyPort.sendPort,
         ));
 
         replyPort.listen((message) {
-          if (message is NmtWorkerError) {
+          if (message is _WorkerError) {
             controller.addError(Exception(message.error));
             replyPort.close();
-          } else if (message is NmtStreamToken) {
+          } else if (message is _StreamToken) {
             controller.add(message.text);
           } else if (message is Map) {
-            final responseText = (message['text'] ?? '').toString();
             _lastStreamResult = TranslationResult(
-              text: responseText,
+              text: (message['text'] ?? '').toString(),
               inputTokens: (message['input_tokens'] ?? 0) as int,
               encoderMs: (message['encoder_ms'] ?? 0).toDouble(),
               decoderMs: (message['decoder_ms'] ?? 0).toDouble(),
               decoderTokens: (message['decoder_tokens'] ?? 0) as int,
             );
-            controller.add(responseText);
             controller.close();
             replyPort.close();
           }
@@ -189,123 +200,154 @@ class LlamaNmtService implements NmtBackend {
   @override
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
-  /// Release the loaded model and terminate the background isolate.
-  @override
-  Future<void> release() async {
-    if (_workerSendPort != null) {
-      try {
-        _workerSendPort!.send(kNmtShutdown);
-      } catch (_) {}
-      _workerSendPort = null;
-    }
-    _workerReceivePort?.close();
-    _workerReceivePort = null;
-    _worker?.kill(priority: Isolate.immediate);
-    _worker = null;
-    _currentModel = null;
-    _readyCompleter = null;
-  }
-
 }
 
-// ===========================================================================
-// Background-isolate worker
-// ===========================================================================
+/// TranslationResult is now defined in nmt_service_common.dart (shared with LlamaNmtService).
+
+// ---- Background-isolate protocol ------------------------------------------
+
+/// Sentinel sent by the worker to signal it has finished loading.
+const _kReady = 1;
+
+/// Sentinel sent to the worker to request shutdown.
+const _kShutdown = 2;
+
+/// Initialisation message sent to the worker isolate.
+class _WorkerInit {
+  final SendPort sendPort;
+  final String modelDir;
+  final int maxLength;
+  final int numThreads;
+  const _WorkerInit({
+    required this.sendPort,
+    required this.modelDir,
+    required this.maxLength,
+    required this.numThreads,
+  });
+}
+
+/// Request the worker to translate [text], reply on [replyPort].
+class _TranslateRequest {
+  final String text;
+  final SendPort replyPort;
+  const _TranslateRequest({required this.text, required this.replyPort});
+}
+
+/// Error response from the worker.
+class _WorkerError {
+  final String error;
+  const _WorkerError(this.error);
+}
+
+/// A streaming partial translation token sent from the worker to the main isolate.
+class _StreamToken {
+  final String text;
+  const _StreamToken(this.text);
+}
+
+/// Request the worker to translate [text] with streaming, reply on [replyPort].
+class _TranslateStreamRequest {
+  final String text;
+  final SendPort replyPort;
+  const _TranslateStreamRequest({required this.text, required this.replyPort});
+}
 
 /// Entry-point for the background isolate.
-void _workerEntry(NmtWorkerInit init) {
+///
+/// This top-level function is spawned via [Isolate.spawn].  It opens the
+/// shared library, creates a translator handle, then listens for translation
+/// requests on the receive port.
+
+// FFI callback type for streaming token callbacks from C++.
+typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
+
+void _workerEntry(_WorkerInit init) {
   try {
     _workerEntryInternal(init);
   } catch (e, st) {
-    init.sendPort.send(NmtWorkerError('Llama worker isolate init failed: $e\n$st'));
+    // Any exception during init (e.g. dylib not found, symbol lookup failure,
+    // native crash) would otherwise kill the isolate silently, leaving the
+    // main isolate blocked forever on completer.future.
+    init.sendPort.send(_WorkerError('Worker isolate init failed: $e\n$st'));
   }
 }
 
-void _workerEntryInternal(NmtWorkerInit init) {
+void _workerEntryInternal(_WorkerInit init) {
   // Open the native library in this isolate.
   // On iOS the static library is linked into the process image.
+  // On macOS DynamicLibrary.open is reference-counted so this is cheap.
   final lib = Platform.isIOS
       ? DynamicLibrary.process()
-      : DynamicLibrary.open('libllamacpp_nmt.dylib');
+      : DynamicLibrary.open('libopus_mt.dylib');
 
   // Look up C functions.
   final createTranslator = lib
-      .lookup<NativeFunction<Pointer<Void> Function(
-          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, Int32, Int32, Int32, Int32,
-          Int32, Pointer<Utf8>)>>(
-          'llamacpp_create_translator')
-      .asFunction<Pointer<Void> Function(
-          Pointer<Utf8>, Pointer<Utf8>, Pointer<Utf8>, int, int, int, int,
-          int, Pointer<Utf8>)>();
+      .lookup<NativeFunction<Pointer<Void> Function(Pointer<Utf8>, Int32, Int32)>>(
+          'opus_mt_create_translator')
+      .asFunction<Pointer<Void> Function(Pointer<Utf8>, int, int)>();
 
   final translate = lib
       .lookup<NativeFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>>(
-          'llamacpp_translate')
+          'opus_mt_translate')
       .asFunction<Pointer<Utf8> Function(Pointer<Void>, Pointer<Utf8>)>();
-
-  final translateStreaming = lib
-      .lookup<NativeFunction<Pointer<Utf8> Function(
-          Pointer<Void>, Pointer<Utf8>,
-          Pointer<NativeFunction<_WorkerTokenCallback>>, Pointer<Void>)>>(
-          'llamacpp_translate_streaming')
-      .asFunction<Pointer<Utf8> Function(
-          Pointer<Void>, Pointer<Utf8>,
-          Pointer<NativeFunction<_WorkerTokenCallback>>, Pointer<Void>)>();
 
   final destroyTranslator = lib
       .lookup<NativeFunction<Void Function(Pointer<Void>)>>(
-          'llamacpp_destroy_translator')
+          'opus_mt_destroy_translator')
       .asFunction<void Function(Pointer<Void>)>();
 
   final freeString = lib
       .lookup<NativeFunction<Void Function(Pointer<Utf8>)>>(
-          'llamacpp_free_string')
+          'opus_mt_free_string')
       .asFunction<void Function(Pointer<Utf8>)>();
 
   final lastError = lib
       .lookup<NativeFunction<Pointer<Utf8> Function()>>(
-          'llamacpp_last_error')
+          'opus_mt_last_error')
       .asFunction<Pointer<Utf8> Function()>();
 
   final isReady = lib
       .lookup<NativeFunction<Int32 Function(Pointer<Void>)>>(
-          'llamacpp_is_ready')
+          'opus_mt_is_ready')
       .asFunction<int Function(Pointer<Void>)>();
 
-  // Create the translator handle (translation mode: chat_mode=0).
-  final mp = init.modelPath.toNativeUtf8();
-  final sl = (init.sourceLang ?? 'Chinese').toNativeUtf8();
-  final tl = (init.targetLang ?? 'English').toNativeUtf8();
-  final emptySp = ''.toNativeUtf8();
-  final handle = createTranslator(
-      mp, sl, tl, 2048, init.numThreads, init.nGpuLayers, init.maxLength,
-      0, emptySp);
-  calloc.free(mp);
-  calloc.free(sl);
-  calloc.free(tl);
-  calloc.free(emptySp);
+  // Look up the streaming translate function.
+  final translateStreaming = lib
+      .lookup<NativeFunction<Pointer<Utf8> Function(
+          Pointer<Void>, Pointer<Utf8>,
+          Pointer<NativeFunction<_WorkerTokenCallback>>, Pointer<Void>)>>(
+          'opus_mt_translate_streaming')
+      .asFunction<Pointer<Utf8> Function(
+          Pointer<Void>, Pointer<Utf8>,
+          Pointer<NativeFunction<_WorkerTokenCallback>>, Pointer<Void>)>();
+
+  // Create the translator handle.
+  final dirPtr = init.modelDir.toNativeUtf8();
+  final handle =
+      createTranslator(dirPtr, init.maxLength, init.numThreads);
+  calloc.free(dirPtr);
 
   if (handle == nullptr || isReady(handle) == 0) {
     final errPtr = lastError();
     final err = errPtr == nullptr ? 'unknown error' : errPtr.toDartString();
-    init.sendPort.send(NmtWorkerError('Failed to create Llama translator: $err'));
+    init.sendPort.send(_WorkerError('Failed to create translator: $err'));
     return;
   }
 
-  // Tell the main isolate we are ready.
+  // Tell the main isolate we are ready and give it our request port.
   final requestPort = ReceivePort();
-  init.sendPort.send(kNmtReady);
+  init.sendPort.send(_kReady);
   init.sendPort.send(requestPort.sendPort);
 
   // Process translation requests.
   requestPort.listen((message) {
-    if (message == kNmtShutdown) {
+    if (message == _kShutdown) {
       destroyTranslator(handle);
       requestPort.close();
       return;
     }
 
-    if (message is NmtTranslateRequest) {
+    if (message is _TranslateRequest) {
       try {
         final textPtr = message.text.toNativeUtf8();
         final resultPtr = translate(handle, textPtr);
@@ -314,7 +356,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
         if (resultPtr == nullptr) {
           final errPtr = lastError();
           final err = errPtr == nullptr ? 'unknown error' : errPtr.toDartString();
-          message.replyPort.send(NmtWorkerError(err));
+          message.replyPort.send(_WorkerError(err));
         } else {
           final resultStr = resultPtr.toDartString();
           freeString(resultPtr);
@@ -322,6 +364,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
             final jsonMap = jsonDecode(resultStr) as Map<String, dynamic>;
             message.replyPort.send(jsonMap);
           } catch (_) {
+            // Fallback: plain text result (backward compat with old dylib).
             message.replyPort.send(<String, dynamic>{
               'text': resultStr,
               'encoder_ms': -1.0,
@@ -331,16 +374,17 @@ void _workerEntryInternal(NmtWorkerInit init) {
           }
         }
       } catch (e) {
-        message.replyPort.send(NmtWorkerError(e.toString()));
+        message.replyPort.send(_WorkerError(e.toString()));
       }
     }
 
-    if (message is NmtTranslateStreamRequest) {
+    if (message is _TranslateStreamRequest) {
       try {
+        // Create a NativeCallable that C++ will invoke for each token.
         final callback = NativeCallable<_WorkerTokenCallback>.isolateLocal(
           (Pointer<Utf8> tokenPtr, Pointer<Void> _) {
             final partialText = tokenPtr.toDartString();
-            message.replyPort.send(NmtStreamToken(partialText));
+            message.replyPort.send(_StreamToken(partialText));
           },
         );
 
@@ -352,7 +396,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
         if (resultPtr == nullptr) {
           final errPtr = lastError();
           final err = errPtr == nullptr ? 'unknown error' : errPtr.toDartString();
-          message.replyPort.send(NmtWorkerError(err));
+          message.replyPort.send(_WorkerError(err));
         } else {
           final resultStr = resultPtr.toDartString();
           freeString(resultPtr);
@@ -371,7 +415,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
 
         callback.close();
       } catch (e) {
-        message.replyPort.send(NmtWorkerError(e.toString()));
+        message.replyPort.send(_WorkerError(e.toString()));
       }
     }
   });

@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 
-import 'model_manager.dart';
+import 'package:voice_app/models/model_manager.dart';
 
 /// Synthesis result returned by [TtsService.synthesize].
 class TtsSynthesisResult {

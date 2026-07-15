@@ -5,9 +5,9 @@ import 'dart:typed_data';
 
 import 'package:record/record.dart';
 
-import 'model_manager.dart';
-import 'utils.dart';
-import 'voice_engine_ffi_bridge.dart';
+import 'package:voice_app/models/model_manager.dart';
+import 'package:voice_app/utils/utils.dart';
+import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
 
 /// Shared ASR helper methods and engine lifecycle management.
 ///

@@ -1,5 +1,5 @@
-import 'local_onnx_model.dart';
-import 'model_manager.dart';
+import 'package:voice_app/models/local_onnx_model.dart';
+import 'package:voice_app/models/model_manager.dart';
 
 class NmtService {
   LocalOnnxModel? _model;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
-import 'model_manager.dart';
+import 'package:voice_app/models/model_manager.dart';
 
 class ModelManagementSheet extends StatefulWidget {
   final String initialType; // 'asr' or 'tts'

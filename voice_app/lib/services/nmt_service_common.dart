@@ -5,7 +5,7 @@
 
 import 'dart:isolate';
 
-import 'model_manager.dart';
+import 'package:voice_app/models/model_manager.dart';
 
 /// Structured result from NMT translation, including timing metrics.
 class TranslationResult {

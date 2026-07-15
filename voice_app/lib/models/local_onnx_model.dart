@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
-import 'onnxruntime/onnxruntime.dart';
+import 'package:voice_app/onnxruntime/onnxruntime.dart';
 
 class LocalOnnxModel {
   late OrtSession _encoderSession;
