@@ -366,15 +366,35 @@ class ModelInfo {
   }
 
   String get ttsEngineType {
-    final metaFile = File(p.join(path, 'metadata.json'));
-    if (metaFile.existsSync()) {
-      try {
-        final jsonStr = metaFile.readAsStringSync();
-        final data = jsonDecode(jsonStr);
-        if (data['model_type'] != null) {
-          return data['model_type'] as String;
-        }
-      } catch (_) {}
+    String? _readMetaJsonModelType() {
+      final metaFile = File(p.join(path, 'metadata.json'));
+      if (metaFile.existsSync()) {
+        try {
+          final data = jsonDecode(metaFile.readAsStringSync());
+          if (data['model_type'] != null) {
+            return data['model_type'] as String;
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    if (ttsEncoderPath != null && ttsDecoderPath != null) {
+      final mt = _readMetaJsonModelType();
+      if (mt == 'vits') {
+        return 'vits_online';
+      }
+      if (mt == 'matcha') {
+        return 'matcha';
+      }
+      // No metadata.json or unrecognized type => default to vits
+      _updateMetadataKey('model_type', 'vits');
+      return 'vits_online';
+    }
+
+    final mt = _readMetaJsonModelType();
+    if (mt != null) {
+      return mt;
     }
 
     final modelFile = ttsEncoderPath != null

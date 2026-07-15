@@ -6,6 +6,7 @@
 
 #include <string>
 #include <vector>
+#include <sys/stat.h>
 
 #include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
@@ -41,9 +42,13 @@ bool OnlineTtsVitsModelConfig::Validate() const {
     model_is_split_dir = true;
   }
 
-  if (!model.empty() && !model_is_split_dir && !FileExists(model)) {
-    SHERPA_ONNX_LOGE("--online-vits-model: '%s' does not exist", model.c_str());
-    return false;
+  if (!model.empty() && !model_is_split_dir) {
+    struct stat dir_stat;
+    bool is_dir = (stat(model.c_str(), &dir_stat) == 0 && S_ISDIR(dir_stat.st_mode));
+    if (!is_dir && !FileExists(model)) {
+      SHERPA_ONNX_LOGE("--online-vits-model: '%s' does not exist", model.c_str());
+      return false;
+    }
   }
 
   if (!model_dir.empty()) {

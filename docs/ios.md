@@ -98,7 +98,7 @@ VoiceHub/
 
 ## 3. 编译 C++ 原生库 (xcframework)
 
-如果你修改了 `llama/csrc/` 或 `opus_mt/csrc/` 中的 C++ 代码，需要重新编译 iOS xcframework 并拷贝到对应插件目录。
+如果你修改了 `llama/csrc/`、`opus_mt/csrc/` 或 `sherpa-onnx/sherpa-onnx/csrc/` 中的 C++ 代码，需要重新编译 iOS xcframework 并拷贝到对应插件目录。
 
 > **注意：** 如果你没有修改 C++ 代码，可以直接跳过本章，使用仓库中已有的 xcframework。
 
@@ -160,6 +160,75 @@ cd opus_mt
 |------|---|------|
 | `OPUS_MT_USE_SENTENCEPIECE` | `OFF` | iOS 编译不依赖 SentencePiece |
 | 环境变量 `OPUS_MT_ONNXRUNTIME_VERSION` | `1.27.0` | 可覆盖 ONNX Runtime 版本 |
+
+### 3.3 编译 sherpa-onnx
+
+`sherpa-onnx` 模块用于 ASR（语音识别）和 TTS（文本转语音），依赖 ONNX Runtime。iOS 上使用**动态 framework**（shared libs），与 macOS 的 `libsherpa-onnx-c-api.dylib` 不同。
+
+```bash
+cd sherpa-onnx
+
+# 编译 iOS 动态 framework (设备 + 模拟器)
+./build-ios-shared.sh
+```
+
+**输出：** `sherpa-onnx/build-ios-shared/sherpa_onnx.xcframework/`
+
+脚本会自动：
+1. 下载 ONNX Runtime iOS 静态 xcframework (v1.27.0)（如已存在则跳过）
+2. 为 `SIMULATOR64`、`SIMULATORARM64`、`OS64` 三个平台编译 `libsherpa-onnx-c-api.dylib`
+3. 用 `lipo` 合并模拟器架构为通用二进制
+4. 创建 `sherpa_onnx.framework` bundle（含 `Info.plist`、签名、install_name_tool 修正）
+5. 打包为 xcframework
+
+**编译参数说明：**
+
+| 参数 | 值 | 说明 |
+|------|---|------|
+| `BUILD_SHARED_LIBS` | `ON` | iOS Flutter 插件需要动态库 |
+| `SHERPA_ONNX_ENABLE_TTS` | `ON` | 启用 TTS 支持 |
+| `SHERPA_ONNX_ENABLE_C_API` | `ON` | 启用 C API（FFI 绑定需要） |
+| `DEPLOYMENT_TARGET` | `13.0` | 最低 iOS 版本 |
+
+> ⚠️ **关键：** sherpa-onnx 的 iOS 插件 (`sherpa_onnx_ios`) 是通过 pub.dev 发布的。即使你的 `pubspec.yaml` 使用本地路径依赖 `sherpa_onnx`，iOS 的 CocoaPods 插件仍然从 **pub cache** 加载（路径：`~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-{version}/`），而非本地项目目录。
+
+**编译后必须手动拷贝到 pub cache：**
+
+```bash
+# 编译
+cd sherpa-onnx && ./build-ios-shared.sh
+
+# 拷贝到 pub cache（替换版本号）
+PUB_CACHE_DIR="$HOME/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4"
+rm -rf "$PUB_CACHE_DIR/ios/sherpa_onnx.xcframework"
+cp -R build-ios-shared/sherpa_onnx.xcframework "$PUB_CACHE_DIR/ios/"
+
+# 清理 Flutter 构建缓存后重新编译
+cd ../voice_app
+rm -rf build/ios/
+flutter build ios --debug
+```
+
+> 如果不清理 `build/ios/`，Xcode 可能使用缓存的 `XCFrameworkIntermediates`，导致旧 framework 仍然被打包进 app。
+
+### 3.4 同时存在静态库和动态库
+
+`sherpa-onnx` 仓库提供了两个 iOS 编译脚本：
+
+| 脚本 | 产物 | 用途 |
+|------|------|------|
+| `build-ios.sh` | 静态库 `libsherpa-onnx.a` (xcframework) | voice_engine 模块静态链接 |
+| `build-ios-shared.sh` | 动态 framework `sherpa_onnx.framework` (xcframework) | Flutter 插件 FFI 动态加载 |
+
+如果你同时修改了 C++ 代码，两个脚本都需要运行，因为 `voice_engine` 模块也依赖 sherpa-onnx：
+
+```bash
+cd sherpa-onnx
+./build-ios.sh          # voice_engine 用的静态库
+./build-ios-shared.sh   # Flutter FFI 插件用的动态库
+cd ../voice_engine
+./build_ios.sh          # voice_engine xcframework
+```
 
 ---
 
@@ -440,7 +509,43 @@ cd ios && pod install && cd ..
 flutter build ios
 ```
 
-### 9.4 Swift Package Manager 警告
+### 9.4 sherpa-onnx C++ 修改后未生效
+
+如果你修改了 `sherpa-onnx/sherpa-onnx/csrc/` 中的代码但 iOS 设备上仍运行旧逻辑，检查：
+
+1. **确认使用了正确的编译脚本：**
+   ```bash
+   cd sherpa-onnx && ./build-ios-shared.sh
+   ```
+   动态 framework 需要 `build-ios-shared.sh`，不是 `build-ios.sh`。
+
+2. **确认 framework 已拷贝到 pub cache：**
+   ```bash
+   # 检查 pub cache 中的 source path
+   strings ~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4/ios/sherpa_onnx.xcframework/ios-arm64/sherpa_onnx.framework/sherpa_onnx \
+     | grep "offline-tts-vits-model-config"
+   ```
+   - 如果是 `/Users/runner/work/...`（CI 路径）→ 说明还在用 pub.dev 上的旧版本，需要重新拷贝
+   - 如果是本地路径（如 `/VoiceHub/...`）→ 已使用本地编译版本
+
+3. **清理 Xcode 缓存后重建：**
+   ```bash
+   cd voice_app
+   rm -rf build/ios/
+   flutter build ios --debug
+   ```
+
+4. **完全清理（最后手段）：**
+   ```bash
+   cd voice_app
+   flutter clean
+   rm -rf ios/Pods ios/Podfile.lock
+   flutter pub get
+   cd ios && pod install && cd ..
+   flutter build ios --debug
+   ```
+
+### 9.5 Swift Package Manager 警告
 
 ```
 The following plugins do not support Swift Package Manager for ios:
@@ -452,7 +557,7 @@ The following plugins do not support Swift Package Manager for ios:
 
 这是非致命警告，插件仍通过 CocoaPods 正常工作。后续 Flutter 版本可能要求插件迁移到 SPM，但目前不影响构建。
 
-### 9.5 模拟器 vs 真机架构不匹配
+### 9.6 模拟器 vs 真机架构不匹配
 
 xcframework 已包含 `ios-arm64`（真机）和 `ios-arm64_x86_64-simulator`（模拟器）两种架构。如果遇到架构错误，确认：
 
@@ -462,7 +567,7 @@ xcodebuild -runFirstLaunch
 xcrun vtool -show-build llama/flutter/llamacpp_macos/ios/llamacpp_nmt.xcframework/ios-arm64/llamacpp_nmt.framework/llamacpp_nmt
 ```
 
-### 9.6 最低 iOS 版本
+### 9.7 最低 iOS 版本
 
 项目最低支持 iOS 14.0（在 `ios/Podfile` 中定义）。如果需要修改：
 
@@ -473,13 +578,13 @@ platform :ios, '14.0'   # 修改此行
 
 同时在 Xcode 中 Runner target → General → Minimum Deployments 保持一致。
 
-### 9.7 构建报 `Bitcode` 错误
+### 9.8 构建报 `Bitcode` 错误
 
 xcframework 已使用 `ENABLE_BITCODE=0` 编译。Xcode 14+ 已弃用 Bitcode，如果你的项目不需要 Bitcode，在 Xcode 中确保：
 
 - Runner target → Build Settings → **Enable Bitcode** = `NO`
 
-### 9.8 首次构建很慢
+### 9.9 首次构建很慢
 
 iOS 首次构建需要编译 Flutter engine 和所有依赖，预计耗时 5-15 分钟。后续增量构建会快很多。
 
@@ -493,6 +598,15 @@ iOS 首次构建需要编译 Flutter engine 和所有依赖，预计耗时 5-15 
 # 1. 编译 C++ 原生库 (仅在修改 C++ 代码后需要)
 cd llama && ./build_ios.sh && cd ..
 cd opus_mt && ./build_ios.sh && cd ..
+cd sherpa-onnx && ./build-ios.sh && ./build-ios-shared.sh && cd ..
+
+# 1b. 拷贝 sherpa-onnx 动态 framework 到 pub cache
+PUB_CACHE_DIR="$HOME/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4"
+rm -rf "$PUB_CACHE_DIR/ios/sherpa_onnx.xcframework"
+cp -R sherpa-onnx/build-ios-shared/sherpa_onnx.xcframework "$PUB_CACHE_DIR/ios/"
+
+# 1c. 如果修改了 voice_engine 或其依赖的 sherpa-onnx 静态库
+cd voice_engine && ./build_ios.sh && cd ..
 
 # 2. 构建 Flutter iOS App
 cd voice_app

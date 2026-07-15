@@ -6,6 +6,8 @@
 
 #include <string>
 #include <vector>
+#include <cerrno>
+#include <sys/stat.h>
 
 #include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
@@ -34,14 +36,32 @@ bool OfflineTtsVitsModelConfig::Validate() const {
     return false;
   }
 
+  // model can be either a single .onnx file or a directory containing
+  // encoder.onnx + decoder.onnx (split VITS / Piper models).
   bool model_is_split_dir = false;
   if (FileExists(model + "/encoder.onnx") && FileExists(model + "/decoder.onnx")) {
     model_is_split_dir = true;
   }
 
-  if (!model_is_split_dir && !FileExists(model)) {
-    SHERPA_ONNX_LOGE("--vits-model: '%s' does not exist", model.c_str());
-    return false;
+  if (!model_is_split_dir) {
+    // model is not a split dir — check if it exists as a regular file.
+    // We also accept a directory without the expected split files.
+    struct stat dir_stat;
+    int stat_ret = stat(model.c_str(), &dir_stat);
+    if (stat_ret != 0) {
+      SHERPA_ONNX_LOGE("--vits-model stat failed (errno=%d): '%s'", errno, model.c_str());
+      return false;
+    }
+    bool is_dir = S_ISDIR(dir_stat.st_mode);
+    bool is_file = S_ISREG(dir_stat.st_mode);
+    if (!is_dir && !is_file) {
+      SHERPA_ONNX_LOGE("--vits-model: '%s' is not a file or directory", model.c_str());
+      return false;
+    }
+    if (is_dir) {
+      SHERPA_ONNX_LOGE("--vits-model: '%s' is a directory but missing encoder.onnx/decoder.onnx", model.c_str());
+      return false;
+    }
   }
 
   if (tokens.empty()) {

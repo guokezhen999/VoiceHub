@@ -419,8 +419,25 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           numThreads: 2,
           matcha: matcha,
         );
+      } else if (isSplit && _selectedTtsModel!.ttsEngineType == 'vits_online') {
+        // Pass directory path so C++ auto-detection (offline-tts-impl.cc)
+        // finds encoder.onnx/decoder.onnx and routes to OnlineTtsVitsImpl.
+        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+          model: _selectedTtsModel!.path,
+          lexicon: lexiconPath,
+          tokens: tokensPath,
+          dataDir: dataDir,
+          dictDir: _selectedTtsModel!.ttsDictDirPath ?? '',
+        );
+        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
+          numThreads: 2,
+          vits: vits,
+        );
       } else {
-        final modelPath = isSplit ? _selectedTtsModel!.path : _selectedTtsModel!.ttsModelPath!;
+        final modelPath = _selectedTtsModel!.ttsModelPath ?? '';
+        if (modelPath.isEmpty) {
+          throw Exception('VITS model file not found in directory ${_selectedTtsModel!.path}');
+        }
         final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
           model: modelPath,
           lexicon: lexiconPath,

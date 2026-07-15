@@ -166,8 +166,25 @@ class _TtsScreenState extends State<TtsScreen> {
           numThreads: 2,
           matcha: matcha,
         );
+      } else if (isSplit && _selectedModel!.ttsEngineType == 'vits_online') {
+        // Pass directory path so C++ auto-detection (offline-tts-impl.cc)
+        // finds encoder.onnx/decoder.onnx and routes to OnlineTtsVitsImpl.
+        final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
+          model: _selectedModel!.path,
+          lexicon: lexiconPath,
+          tokens: tokensPath,
+          dataDir: dataDir,
+          dictDir: _selectedModel!.ttsDictDirPath ?? '',
+        );
+        modelConfig = sherpa_onnx.OfflineTtsModelConfig(
+          numThreads: 2,
+          vits: vits,
+        );
       } else {
-        final modelPath = isSplit ? _selectedModel!.path : _selectedModel!.ttsModelPath!;
+        final modelPath = _selectedModel!.ttsModelPath ?? '';
+        if (modelPath.isEmpty) {
+          throw Exception('VITS model file not found in directory ${_selectedModel!.path}');
+        }
         final vits = sherpa_onnx.OfflineTtsVitsModelConfig(
           model: modelPath,
           lexicon: lexiconPath,
