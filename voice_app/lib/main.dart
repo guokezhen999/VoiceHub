@@ -9,13 +9,11 @@ import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/llama_nmt_service.dart';
-import 'package:voice_app/services/llama_chat_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
 import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  WidgetsBinding.instance.addObserver(AppExitCleanupObserver());
   await LanguageManager.load();
   HardwareKeyboard.instance.clearState();
 
@@ -612,14 +610,5 @@ class _GridMenuCardState extends State<GridMenuCard> {
         ),
       ),
     );
-  }
-}
-
-class AppExitCleanupObserver extends WidgetsBindingObserver {
-  @override
-  Future<AppExitResponse> didRequestAppExit() async {
-    await LlamaChatService.releaseAll();
-    await LlamaNmtService.releaseAll();
-    return AppExitResponse.exit;
   }
 }

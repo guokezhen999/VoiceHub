@@ -427,86 +427,101 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               ),
                             ),
                           ] else ...[
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // Left box: LLM Model Selection
-                                Expanded(
-                                  child: Column(
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isWide = constraints.maxWidth > 450;
+
+                                final modelField = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Select LLM Model:',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<ModelInfo>(
+                                      value: _selectedNmtModel,
+                                      decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: Colors.grey.shade50,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+                                        ),
+                                        isDense: true,
+                                      ),
+                                      items: _nmtModels.map((model) {
+                                        return DropdownMenuItem(value: model, child: Text(model.name));
+                                      }).toList(),
+                                      onChanged: (val) {
+                                        setState(() {
+                                          _selectedNmtModel = val;
+                                          _deinitializeEngine();
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                );
+
+                                final langField = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Target Language:',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    DropdownButtonFormField<String>(
+                                      value: _selectedTargetLang,
+                                      decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: Colors.grey.shade50,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                        enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                                        ),
+                                        focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                          borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+                                        ),
+                                        isDense: true,
+                                      ),
+                                      items: LanguageManager.languages.map((lang) {
+                                        return DropdownMenuItem(value: lang, child: Text(lang));
+                                      }).toList(),
+                                      onChanged: (val) {
+                                        if (val != null) _onLlmLanguageChanged(targetLang: val);
+                                      },
+                                    ),
+                                  ],
+                                );
+
+                                if (isWide) {
+                                  return Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      const Text(
-                                        'Select LLM Model:',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      DropdownButtonFormField<ModelInfo>(
-                                        value: _selectedNmtModel,
-                                        decoration: InputDecoration(
-                                          filled: true,
-                                          fillColor: Colors.grey.shade50,
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
-                                          ),
-                                          isDense: true,
-                                        ),
-                                        items: _nmtModels.map((model) {
-                                          return DropdownMenuItem(value: model, child: Text(model.name));
-                                        }).toList(),
-                                        onChanged: (val) {
-                                          setState(() {
-                                            _selectedNmtModel = val;
-                                            _deinitializeEngine();
-                                          });
-                                        },
-                                      ),
+                                      Expanded(child: modelField),
+                                      const SizedBox(width: 12),
+                                      Expanded(child: langField),
                                     ],
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                // Right box: Target Language Selection
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                  );
+                                } else {
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
                                     children: [
-                                      const Text(
-                                        'Target Language:',
-                                        style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      DropdownButtonFormField<String>(
-                                        value: _selectedTargetLang,
-                                        decoration: InputDecoration(
-                                          filled: true,
-                                          fillColor: Colors.grey.shade50,
-                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          enabledBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
-                                          ),
-                                          focusedBorder: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
-                                          ),
-                                          isDense: true,
-                                        ),
-                                        items: LanguageManager.languages.map((lang) {
-                                          return DropdownMenuItem(value: lang, child: Text(lang));
-                                        }).toList(),
-                                        onChanged: (val) {
-                                          if (val != null) _onLlmLanguageChanged(targetLang: val);
-                                        },
-                                      ),
+                                      modelField,
+                                      const SizedBox(height: 12),
+                                      langField,
                                     ],
-                                  ),
-                                ),
-                              ],
+                                  );
+                                }
+                              },
                             ),
                           ],
                         ] else ...[

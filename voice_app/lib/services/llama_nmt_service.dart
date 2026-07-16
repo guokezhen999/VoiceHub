@@ -25,14 +25,6 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
 class LlamaNmtService implements NmtBackend {
-  static final List<LlamaNmtService> _instances = [];
-
-  static List<LlamaNmtService> get activeInstances => List.unmodifiable(_instances);
-
-  LlamaNmtService() {
-    _instances.add(this);
-  }
-
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -211,7 +203,6 @@ class LlamaNmtService implements NmtBackend {
   /// Release the loaded model and terminate the background isolate.
   @override
   Future<void> release() async {
-    _instances.remove(this);
     if (_workerSendPort != null) {
       try {
         _workerSendPort!.send(kNmtShutdown);
@@ -224,14 +215,6 @@ class LlamaNmtService implements NmtBackend {
     _worker = null;
     _currentModel = null;
     _readyCompleter = null;
-  }
-
-  /// Clean up and release all active instances of LlamaNmtService.
-  static Future<void> releaseAll() async {
-    final copy = List<LlamaNmtService>.from(_instances);
-    for (final svc in copy) {
-      await svc.release();
-    }
   }
 
 }

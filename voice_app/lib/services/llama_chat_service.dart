@@ -27,14 +27,6 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   svc.chatStream("Hello!").listen((partial) { ... });
 ///   await svc.release();
 class LlamaChatService {
-  static final List<LlamaChatService> _instances = [];
-
-  static List<LlamaChatService> get activeInstances => List.unmodifiable(_instances);
-
-  LlamaChatService() {
-    _instances.add(this);
-  }
-
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -187,7 +179,6 @@ class LlamaChatService {
 
   /// Release the loaded model and terminate the background isolate.
   Future<void> release() async {
-    _instances.remove(this);
     if (_workerSendPort != null) {
       try {
         _workerSendPort!.send(kNmtShutdown);
@@ -200,14 +191,6 @@ class LlamaChatService {
     _worker = null;
     _currentModel = null;
     _readyCompleter = null;
-  }
-
-  /// Clean up and release all active instances of LlamaChatService.
-  static Future<void> releaseAll() async {
-    final copy = List<LlamaChatService>.from(_instances);
-    for (final svc in copy) {
-      await svc.release();
-    }
   }
 }
 

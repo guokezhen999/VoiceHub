@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'package:voice_app/services/asr_service.dart';
 import 'package:voice_app/services/nmt_service_common.dart';
@@ -156,6 +157,19 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     _deinitializeAll();
     _audioPlayer.dispose();
     _subtitlesScrollController.dispose();
+
+    // Clean up temporary audio file on iOS if copied
+    if (_selectedFilePath != null && _selectedFilePath!.contains('temp_transcribe_')) {
+      try {
+        final file = File(_selectedFilePath!);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+      } catch (e) {
+        print('Failed to delete temp file on dispose: $e');
+      }
+    }
+
     super.dispose();
   }
 
@@ -293,8 +307,32 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       );
 
       if (result != null && result.files.single.path != null) {
-        final path = result.files.single.path!;
-        
+        final originalPath = result.files.single.path!;
+        String path = originalPath;
+
+        // On iOS, files from document picker may reside in Inbox folders with restricted access for system frameworks.
+        // Copying the file to the app's standard temporary directory resolves any permission/sandbox issues.
+        if (Platform.isIOS) {
+          final tempDir = await getTemporaryDirectory();
+          final ext = result.files.single.extension ?? 'wav';
+          final safePath = '${tempDir.path}/temp_transcribe_${DateTime.now().millisecondsSinceEpoch}.$ext';
+          
+          // Delete the previously copied temp file if it exists
+          if (_selectedFilePath != null && _selectedFilePath!.contains('temp_transcribe_')) {
+            try {
+              final oldFile = File(_selectedFilePath!);
+              if (await oldFile.exists()) {
+                await oldFile.delete();
+              }
+            } catch (e) {
+              print('Failed to delete old temp file: $e');
+            }
+          }
+
+          await File(originalPath).copy(safePath);
+          path = safePath;
+        }
+
         setState(() {
           _isProcessing = true;
           _processProgress = 0.0;
