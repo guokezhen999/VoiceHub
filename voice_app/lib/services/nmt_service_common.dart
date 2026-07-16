@@ -39,6 +39,9 @@ const kNmtReady = 1;
 /// Sentinel sent to the worker to request shutdown.
 const kNmtShutdown = 2;
 
+/// Sentinel sent to the worker to update translation languages.
+const kNmtSetLanguages = 3;
+
 /// Initialisation message sent to the worker isolate.
 class NmtWorkerInit {
   final SendPort sendPort;
@@ -109,6 +112,16 @@ class NmtChatRequest {
 class NmtToggleThinkingRequest {
   final bool enableThinking;
   const NmtToggleThinkingRequest({required this.enableThinking});
+}
+
+/// Request the worker to update translation languages without reloading the model.
+class NmtSetLanguagesRequest {
+  final String sourceLang;
+  final String targetLang;
+  const NmtSetLanguagesRequest({
+    required this.sourceLang,
+    required this.targetLang,
+  });
 }
 
 /// A streaming partial translation token sent from the worker to the main isolate.

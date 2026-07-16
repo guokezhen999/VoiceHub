@@ -27,6 +27,9 @@ public:
     // Set thinking mode dynamically.
     void SetEnableThinking(bool enable_thinking) { config_.enable_thinking = enable_thinking; }
 
+    // Update translation languages without reloading the model.
+    void SetLanguages(const std::string& source_lang, const std::string& target_lang);
+
     // Check whether the translator is initialized and ready.
     bool IsReady() const;
 

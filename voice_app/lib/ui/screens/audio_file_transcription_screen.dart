@@ -216,6 +216,43 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     _nmtBackend = null;
   }
 
+  void _deinitializeMt() {
+    _nmtBackend?.release();
+    _nmtBackend = null;
+  }
+
+  void _applyLlmLanguages() {
+    final backend = _nmtBackend;
+    if (backend is LlamaNmtService && backend.isLoaded) {
+      backend.setLanguages(_selectedSourceLang, _selectedTargetLang);
+    }
+  }
+
+  void _onSourceLanguageChanged(String val) {
+    setState(() {
+      _selectedSourceLang = val;
+      _updateSelectedModels();
+    });
+    _asr.deinitialize();
+    if (_mtMode == 'llm') {
+      _applyLlmLanguages();
+    } else {
+      _deinitializeMt();
+    }
+  }
+
+  void _onTargetLanguageChanged(String val) {
+    setState(() {
+      _selectedTargetLang = val;
+      _updateSelectedModels();
+    });
+    if (_mtMode == 'llm') {
+      _applyLlmLanguages();
+    } else {
+      _deinitializeMt();
+    }
+  }
+
   void _updatePlayingSubtitleIndex() {
     final sec = _playbackPosition.inMilliseconds / 1000.0;
     int foundIdx = -1;
@@ -369,7 +406,12 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       // 2. Initialize Translation engine if needed
       if (_enableTranslation) {
         if (_mtMode == 'llm') {
-          if (_nmtBackend == null || _nmtBackend is! LlamaNmtService) {
+          final llmBackend = _nmtBackend is LlamaNmtService
+              ? _nmtBackend as LlamaNmtService
+              : null;
+          final needReload = llmBackend == null ||
+              llmBackend.currentModel?.path != _selectedLlmModel!.path;
+          if (needReload) {
             _nmtBackend?.release();
             _nmtBackend = LlamaNmtService();
             await _nmtBackend!.loadModel(
@@ -377,6 +419,8 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
               sourceLang: _selectedSourceLang,
               targetLang: _selectedTargetLang,
             );
+          } else {
+            await llmBackend!.setLanguages(_selectedSourceLang, _selectedTargetLang);
           }
         } else {
           if (_nmtBackend == null || _nmtBackend is! NativeNmtService) {
@@ -777,13 +821,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                             _buildLanguageDropdown(
                               value: _selectedSourceLang,
                               onChanged: (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    _selectedSourceLang = val;
-                                    _updateSelectedModels();
-                                    _deinitializeAll();
-                                  });
-                                }
+                                if (val != null) _onSourceLanguageChanged(val);
                               },
                             ),
                           ],
@@ -799,13 +837,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                             _buildLanguageDropdown(
                               value: _selectedTargetLang,
                               onChanged: (val) {
-                                if (val != null) {
-                                  setState(() {
-                                    _selectedTargetLang = val;
-                                    _updateSelectedModels();
-                                    _deinitializeAll();
-                                  });
-                                }
+                                if (val != null) _onTargetLanguageChanged(val);
                               },
                             ),
                           ],
@@ -899,7 +931,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                         onChanged: (model) {
                           setState(() {
                             _selectedNmtModel = model;
-                            _deinitializeAll();
+                            _deinitializeMt();
                           });
                         },
                       ),
@@ -925,7 +957,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                         onChanged: (model) {
                           setState(() {
                             _selectedLlmModel = model;
-                            _deinitializeAll();
+                            _deinitializeMt();
                           });
                         },
                       ),

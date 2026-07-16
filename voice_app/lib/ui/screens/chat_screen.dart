@@ -182,153 +182,178 @@ class _ChatScreenState extends State<ChatScreen> {
         children: [
           _buildConfigCard(),
 
-          if (_isInitialized) ...[
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Chat Session Active',
-                    style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
-                  ),
-                  TextButton.icon(
-                    onPressed: _bubbles.isEmpty ? null : _clearHistory,
-                    icon: const Icon(Icons.delete_outline, size: 14),
-                    label: const Text('Clear History', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red.shade400,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  _isInitialized ? 'Chat Session Active' : 'Chat Session Inactive',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Think',
+                      style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      height: 20,
+                      width: 36,
+                      child: FittedBox(
+                        fit: BoxFit.contain,
+                        child: Switch(
+                          value: _enableThinking,
+                          activeColor: const Color(0xFF1E3C72),
+                          onChanged: (val) {
+                            setState(() {
+                              _enableThinking = val;
+                            });
+                          },
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    TextButton.icon(
+                      onPressed: _bubbles.isEmpty ? null : _clearHistory,
+                      icon: const Icon(Icons.delete_outline, size: 14),
+                      label: const Text('Clear History', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red.shade400,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
                   ],
                 ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _bubbles.length,
-                    itemBuilder: (context, index) => _buildBubble(_bubbles[index]),
-                  ),
-                ),
-              ),
+              ],
             ),
-
-            if (widget.showPerfMetrics && _lastEncoderMs != null)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1E3C72).withOpacity(0.06),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFF1E3C72).withOpacity(0.15)),
-                ),
-                child: Text(
-                  'Prompt: ${_lastInputTokens}t / ${_lastEncoderMs!.toStringAsFixed(0)}ms  |  '
-                  'Decode: ${_lastDecoderTokens}t / ${(_lastDecoderTokensPerSec ?? 0).toStringAsFixed(1)}t/s',
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
-                  textAlign: TextAlign.center,
-                ),
+          ),
+          
+          Expanded(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(24),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.04),
-                            blurRadius: 10,
-                            offset: const Offset(0, 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(20),
+                child: _bubbles.isEmpty
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(32.0),
+                          child: Text(
+                            _isInitialized
+                                ? 'No messages yet. Start the conversation!'
+                                : 'Please initialize the engine first to start chatting.',
+                            style: const TextStyle(color: Colors.grey),
+                            textAlign: TextAlign.center,
                           ),
-                        ],
-                      ),
-                      child: TextField(
-                        controller: _inputController,
-                        maxLength: 500,
-                        style: const TextStyle(fontSize: 15, color: Color(0xFF2D3748)),
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          hintStyle: TextStyle(color: Colors.grey.shade400),
-                          border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                          counterText: '',
                         ),
-                        maxLines: 4,
-                        minLines: 1,
-                        textInputAction: TextInputAction.send,
-                        onSubmitted: (_) => _sendMessage(),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _bubbles.length,
+                        itemBuilder: (context, index) => _buildBubble(_bubbles[index]),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  GestureDetector(
-                    onTap: _sendMessage,
-                    child: Container(
-                      width: 48,
-                      height: 48,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-                    ),
-                  ),
-                ],
               ),
             ),
-          ] else ...[
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.all(16),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'Please initialize the engine first to start chatting.',
-                  style: TextStyle(color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
+          ),
+
+          if (widget.showPerfMetrics && _lastEncoderMs != null)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E3C72).withOpacity(0.06),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFF1E3C72).withOpacity(0.15)),
+              ),
+              child: Text(
+                'Prompt: ${_lastInputTokens}t / ${_lastEncoderMs!.toStringAsFixed(0)}ms  |  '
+                'Decode: ${_lastDecoderTokens}t / ${(_lastDecoderTokensPerSec ?? 0).toStringAsFixed(1)}t/s',
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
+                textAlign: TextAlign.center,
               ),
             ),
-          ]
+
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.04),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: TextField(
+                      controller: _inputController,
+                      enabled: _isInitialized,
+                      maxLength: 500,
+                      style: TextStyle(
+                        fontSize: 15,
+                        color: _isInitialized ? const Color(0xFF2D3748) : Colors.grey.shade400,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: _isInitialized ? 'Type a message...' : 'Engine not initialized',
+                        hintStyle: TextStyle(color: Colors.grey.shade400),
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                        counterText: '',
+                      ),
+                      maxLines: 4,
+                      minLines: 1,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _isInitialized ? _sendMessage() : null,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: _isInitialized ? _sendMessage : null,
+                  child: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      gradient: _isInitialized
+                          ? const LinearGradient(
+                              colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            )
+                          : LinearGradient(
+                              colors: [Colors.grey.shade300, Colors.grey.shade400],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -465,26 +490,6 @@ class _ChatScreenState extends State<ChatScreen> {
                     _deinitializeEngine();
                   });
                 },
-              ),
-              const SizedBox(height: 12),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Enable Thinking Process',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF2D3748)),
-                  ),
-                  Switch(
-                    value: _enableThinking,
-                    activeColor: const Color(0xFF1E3C72),
-                    onChanged: (val) {
-                      setState(() {
-                        _enableThinking = val;
-                        _deinitializeEngine();
-                      });
-                    },
-                  ),
-                ],
               ),
               if (_selectedModel != null) ...[
                 const SizedBox(height: 16),

@@ -241,6 +241,40 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     _nmtBackend = null;
   }
 
+  void _applyLlmLanguages() {
+    final backend = _nmtBackend;
+    if (backend is LlamaNmtService && backend.isLoaded) {
+      backend.setLanguages(_selectedSourceLang, _selectedTargetLang);
+    }
+  }
+
+  void _onSourceLanguageChanged(String val) {
+    setState(() {
+      _selectedSourceLang = val;
+      _updateSelectedModels();
+    });
+    _deinitializeAsr();
+    _deinitializeTts();
+    if (_mtMode == 'llm') {
+      _applyLlmLanguages();
+    } else {
+      _deinitializeMt();
+    }
+  }
+
+  void _onTargetLanguageChanged(String val) {
+    setState(() {
+      _selectedTargetLang = val;
+      _updateSelectedModels();
+    });
+    _deinitializeTts();
+    if (_mtMode == 'llm') {
+      _applyLlmLanguages();
+    } else {
+      _deinitializeMt();
+    }
+  }
+
   void _deinitializeTts() {
     _ttsService.deinitialize();
   }
@@ -683,8 +717,14 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _selectedSourceLang = _selectedTargetLang;
       _selectedTargetLang = temp;
       _updateSelectedModels();
-      _deinitializeAll();
     });
+    _deinitializeAsr();
+    _deinitializeTts();
+    if (_mtMode == 'llm') {
+      _applyLlmLanguages();
+    } else {
+      _deinitializeMt();
+    }
   }
 
   void _openModelManagement(String type) {
@@ -887,13 +927,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 _buildLanguageDropdown(
                   value: _selectedSourceLang,
                   onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedSourceLang = val;
-                        _updateSelectedModels();
-                        _deinitializeAll();
-                      });
-                    }
+                    if (val != null) _onSourceLanguageChanged(val);
                   },
                 ),
               ],
@@ -922,13 +956,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 _buildLanguageDropdown(
                   value: _selectedTargetLang,
                   onChanged: (val) {
-                    if (val != null) {
-                      setState(() {
-                        _selectedTargetLang = val;
-                        _updateSelectedModels();
-                        _deinitializeAll();
-                      });
-                    }
+                    if (val != null) _onTargetLanguageChanged(val);
                   },
                 ),
               ],

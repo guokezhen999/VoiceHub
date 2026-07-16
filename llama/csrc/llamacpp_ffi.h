@@ -67,6 +67,12 @@ void llamacpp_destroy_translator(LlamaTranslatorHandle* handle);
 // Enable/disable thinking dynamically in chat mode.
 void llamacpp_set_enable_thinking(LlamaTranslatorHandle* handle, int32_t enable_thinking);
 
+// Update translation languages without reloading the model.
+void llamacpp_set_languages(
+    LlamaTranslatorHandle* handle,
+    const char* source_lang,
+    const char* target_lang);
+
 // Free a string returned by llamacpp_translate().
 void llamacpp_free_string(const char* str);
 

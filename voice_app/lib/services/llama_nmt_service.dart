@@ -25,6 +25,14 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
 class LlamaNmtService implements NmtBackend {
+  static final List<LlamaNmtService> _instances = [];
+
+  static List<LlamaNmtService> get activeInstances => List.unmodifiable(_instances);
+
+  LlamaNmtService() {
+    _instances.add(this);
+  }
+
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
@@ -45,7 +53,7 @@ class LlamaNmtService implements NmtBackend {
   }
 
   /// Load a GGUF model from [modelInfo] in a background isolate.
-  /// [sourceLang] and [targetLang] are the UI-selected languages used for prompts.
+  /// Language settings are applied separately via [setLanguages].
   @override
   Future<void> loadModel(
     ModelInfo modelInfo, {
@@ -56,16 +64,13 @@ class LlamaNmtService implements NmtBackend {
     int numThreads = 4,
     int nGpuLayers = -1,
   }) async {
-    final resolvedSourceLang = sourceLang ?? 'Chinese';
-    final resolvedTargetLang = targetLang ?? 'English';
-
     if (_currentModel?.path == modelInfo.path && _worker != null) {
       return; // Already loaded.
     }
     await release();
 
-    _sourceLang = resolvedSourceLang;
-    _targetLang = resolvedTargetLang;
+    _sourceLang = sourceLang ?? 'Chinese';
+    _targetLang = targetLang ?? 'English';
 
     final modelPath = modelInfo.llmModelPath ?? modelInfo.path;
     _readyCompleter = Completer<void>();
@@ -79,8 +84,6 @@ class LlamaNmtService implements NmtBackend {
         maxLength: maxLength,
         numThreads: numThreads,
         nGpuLayers: nGpuLayers,
-        sourceLang: resolvedSourceLang,
-        targetLang: resolvedTargetLang,
       ),
     );
 
@@ -111,7 +114,23 @@ class LlamaNmtService implements NmtBackend {
     });
 
     await completer.future;
+    await setLanguages(_sourceLang, _targetLang);
   }
+
+  /// Update translation languages without reloading the GGUF model.
+  Future<void> setLanguages(String sourceLang, String targetLang) async {
+    _sourceLang = sourceLang;
+    _targetLang = targetLang;
+    if (_workerSendPort == null) return;
+
+    _workerSendPort!.send(NmtSetLanguagesRequest(
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+    ));
+  }
+
+  String get sourceLang => _sourceLang;
+  String get targetLang => _targetLang;
 
   /// Translate [text] in the background isolate.
   Future<TranslationResult> translate(String text) async {
@@ -192,6 +211,7 @@ class LlamaNmtService implements NmtBackend {
   /// Release the loaded model and terminate the background isolate.
   @override
   Future<void> release() async {
+    _instances.remove(this);
     if (_workerSendPort != null) {
       try {
         _workerSendPort!.send(kNmtShutdown);
@@ -204,6 +224,14 @@ class LlamaNmtService implements NmtBackend {
     _worker = null;
     _currentModel = null;
     _readyCompleter = null;
+  }
+
+  /// Clean up and release all active instances of LlamaNmtService.
+  static Future<void> releaseAll() async {
+    final copy = List<LlamaNmtService>.from(_instances);
+    for (final svc in copy) {
+      await svc.release();
+    }
   }
 
 }
@@ -272,17 +300,21 @@ void _workerEntryInternal(NmtWorkerInit init) {
           'llamacpp_is_ready')
       .asFunction<int Function(Pointer<Void>)>();
 
+  final setLanguages = lib
+      .lookup<NativeFunction<Void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)>>(
+          'llamacpp_set_languages')
+      .asFunction<void Function(Pointer<Void>, Pointer<Utf8>, Pointer<Utf8>)>();
+
   // Create the translator handle (translation mode: chat_mode=0).
+  // Languages are set after load via llamacpp_set_languages.
   final mp = init.modelPath.toNativeUtf8();
-  final sl = (init.sourceLang ?? 'Chinese').toNativeUtf8();
-  final tl = (init.targetLang ?? 'English').toNativeUtf8();
+  final emptyLang = ''.toNativeUtf8();
   final emptySp = ''.toNativeUtf8();
   final handle = createTranslator(
-      mp, sl, tl, 2048, init.numThreads, init.nGpuLayers, init.maxLength,
+      mp, emptyLang, emptyLang, 2048, init.numThreads, init.nGpuLayers, init.maxLength,
       0, emptySp);
   calloc.free(mp);
-  calloc.free(sl);
-  calloc.free(tl);
+  calloc.free(emptyLang);
   calloc.free(emptySp);
 
   if (handle == nullptr || isReady(handle) == 0) {
@@ -302,6 +334,15 @@ void _workerEntryInternal(NmtWorkerInit init) {
     if (message == kNmtShutdown) {
       destroyTranslator(handle);
       requestPort.close();
+      return;
+    }
+
+    if (message is NmtSetLanguagesRequest) {
+      final sl = message.sourceLang.toNativeUtf8();
+      final tl = message.targetLang.toNativeUtf8();
+      setLanguages(handle, sl, tl);
+      calloc.free(sl);
+      calloc.free(tl);
       return;
     }
 

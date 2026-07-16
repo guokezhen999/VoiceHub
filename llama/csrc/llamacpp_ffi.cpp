@@ -146,6 +146,16 @@ void llamacpp_set_enable_thinking(LlamaTranslatorHandle* handle, int32_t enable_
     }
 }
 
+void llamacpp_set_languages(
+    LlamaTranslatorHandle* handle,
+    const char* source_lang,
+    const char* target_lang) {
+    if (!handle) return;
+    handle->config.source_lang = source_lang ? source_lang : "";
+    handle->config.target_lang = target_lang ? target_lang : "";
+    handle->translator.SetLanguages(handle->config.source_lang, handle->config.target_lang);
+}
+
 void llamacpp_free_string(const char* str) {
     delete[] str;
 }

@@ -131,6 +131,18 @@ std::string LlamaTranslator::LastError() const {
     return error_;
 }
 
+void LlamaTranslator::SetLanguages(const std::string& source_lang,
+                                   const std::string& target_lang) {
+    config_.source_lang = source_lang;
+    config_.target_lang = target_lang;
+    last_tokens_.clear();
+    sys_prompt_cached_ = false;
+    sys_prompt_len_ = 0;
+    if (ctx_) {
+        llama_memory_clear(llama_get_memory(ctx_), true);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Chat template
 // ---------------------------------------------------------------------------

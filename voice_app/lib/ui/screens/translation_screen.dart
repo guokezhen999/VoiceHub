@@ -115,6 +115,34 @@ class _TranslationScreenState extends State<TranslationScreen> {
     });
   }
 
+  void _applyLlmLanguages() {
+    final backend = _nmtBackend;
+    if (backend is LlamaNmtService && backend.isLoaded) {
+      backend.setLanguages(_selectedSourceLang, _selectedTargetLang);
+    }
+  }
+
+  void _onLlmLanguageChanged({String? sourceLang, String? targetLang}) {
+    setState(() {
+      if (sourceLang != null) _selectedSourceLang = sourceLang;
+      if (targetLang != null) _selectedTargetLang = targetLang;
+    });
+    _applyLlmLanguages();
+  }
+
+  void _swapLanguages() {
+    setState(() {
+      final temp = _selectedSourceLang;
+      _selectedSourceLang = _selectedTargetLang;
+      _selectedTargetLang = temp;
+      if (_isLlamaBackend) {
+        _applyLlmLanguages();
+      } else {
+        _updateSelectedNmtModel();
+      }
+    });
+  }
+
   Future<void> _initializeEngine() async {
     if (_selectedNmtModel == null) return;
     try {
@@ -195,15 +223,6 @@ class _TranslationScreenState extends State<TranslationScreen> {
         _isTranslating = false;
       });
     }
-  }
-
-  void _swapLanguages() {
-    setState(() {
-      final temp = _selectedSourceLang;
-      _selectedSourceLang = _selectedTargetLang;
-      _selectedTargetLang = temp;
-      _updateSelectedNmtModel();
-    });
   }
 
   void _openModelManagement() {
@@ -384,46 +403,114 @@ class _TranslationScreenState extends State<TranslationScreen> {
                       if (_loadingModels)
                         const Center(child: CircularProgressIndicator())
                       else ...[
-                        // Language pickers
-                        if (_isLlamaBackend)
-                          // LLM: only target language is needed
-                          Row(
-                            children: [
-                              Expanded(
-                                child: DropdownButtonFormField<String>(
-                                  value: _selectedTargetLang,
-                                  decoration: InputDecoration(
-                                    labelText: 'Target Language',
-                                    filled: true,
-                                    fillColor: Colors.grey.shade50,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
-                                    ),
-                                    isDense: true,
-                                  ),
-                                  items: LanguageManager.languages.map((lang) {
-                                    return DropdownMenuItem(value: lang, child: Text(lang));
-                                  }).toList(),
-                                  onChanged: (val) {
-                                    if (val != null) {
-                                      setState(() {
-                                        _selectedTargetLang = val;
-                                        _deinitializeEngine();
-                                      });
-                                    }
-                                  },
-                                ),
+                        if (_isLlamaBackend) ...[
+                          // LLM: select model first, then languages (prompt-only change)
+                          if (_nmtModels.isEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.orange.shade200),
                               ),
-                            ],
-                          )
-                        else
-                          // Marian NMT: source + target language pair
+                              child: Row(
+                                children: [
+                                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade600),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'No GGUF model installed.\nPlease click the model repository icon to import a model.',
+                                      style: TextStyle(color: Color(0xFFC05621), fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ] else ...[
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Left box: LLM Model Selection
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Select LLM Model:',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<ModelInfo>(
+                                        value: _selectedNmtModel,
+                                        decoration: InputDecoration(
+                                          filled: true,
+                                          fillColor: Colors.grey.shade50,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+                                          ),
+                                          isDense: true,
+                                        ),
+                                        items: _nmtModels.map((model) {
+                                          return DropdownMenuItem(value: model, child: Text(model.name));
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          setState(() {
+                                            _selectedNmtModel = val;
+                                            _deinitializeEngine();
+                                          });
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                // Right box: Target Language Selection
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Target Language:',
+                                        style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      DropdownButtonFormField<String>(
+                                        value: _selectedTargetLang,
+                                        decoration: InputDecoration(
+                                          filled: true,
+                                          fillColor: Colors.grey.shade50,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                                          ),
+                                          focusedBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12),
+                                            borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+                                          ),
+                                          isDense: true,
+                                        ),
+                                        items: LanguageManager.languages.map((lang) {
+                                          return DropdownMenuItem(value: lang, child: Text(lang));
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          if (val != null) _onLlmLanguageChanged(targetLang: val);
+                                        },
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ] else ...[
+                          // Marian NMT: language pair first, then model
                           Row(
                             children: [
                               Expanded(
@@ -498,81 +585,79 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               ),
                             ],
                           ),
-                        const SizedBox(height: 16),
+                          const SizedBox(height: 16),
 
-                        if (_selectedNmtModel == null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.orange.shade50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: Colors.orange.shade200),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade600),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _isLlamaBackend
-                                        ? 'No GGUF model installed.\nPlease click the model repository icon to import a model.'
-                                        : 'No local NMT model installed for $_selectedSourceLang to $_selectedTargetLang.\n'
-                                            'Please click the model repository icon above to import a model.',
-                                    style: const TextStyle(color: Color(0xFFC05621), fontSize: 12),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ] else ...[
-                          // If there are multiple models for the same language pair, let the user select
-                          if (currentPairModels.length > 1) ...[
-                            const Text(
-                              'Select NMT Model:',
-                              style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 6),
-                            DropdownButtonFormField<ModelInfo>(
-                              value: _selectedNmtModel,
-                              decoration: InputDecoration(
-                                filled: true,
-                                fillColor: Colors.grey.shade50,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
-                                ),
-                                isDense: true,
+                          if (_selectedNmtModel == null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.orange.shade200),
                               ),
-                              items: currentPairModels.map((model) {
-                                return DropdownMenuItem(value: model, child: Text(model.name));
-                              }).toList(),
-                              onChanged: (val) {
-                                setState(() {
-                                  _selectedNmtModel = val;
-                                  _deinitializeEngine();
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                          ] else ...[
-                            Row(
-                              children: [
-                                const Icon(Icons.check_circle_outline, color: Colors.green, size: 18),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Text(
-                                    'Active Model: ${_selectedNmtModel!.name}',
-                                    style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.green),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.warning_amber_rounded, color: Colors.orange.shade600),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      'No local NMT model installed for $_selectedSourceLang to $_selectedTargetLang.\n'
+                                          'Please click the model repository icon above to import a model.',
+                                      style: const TextStyle(color: Color(0xFFC05621), fontSize: 12),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                            const SizedBox(height: 12),
+                          ] else ...[
+                            if (currentPairModels.length > 1) ...[
+                              const Text(
+                                'Select NMT Model:',
+                                style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 6),
+                              DropdownButtonFormField<ModelInfo>(
+                                value: _selectedNmtModel,
+                                decoration: InputDecoration(
+                                  filled: true,
+                                  fillColor: Colors.grey.shade50,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(color: Color(0xFF1E3C72), width: 2),
+                                  ),
+                                  isDense: true,
+                                ),
+                                items: currentPairModels.map((model) {
+                                  return DropdownMenuItem(value: model, child: Text(model.name));
+                                }).toList(),
+                                onChanged: (val) {
+                                  setState(() {
+                                    _selectedNmtModel = val;
+                                    _deinitializeEngine();
+                                  });
+                                },
+                              ),
+                              const SizedBox(height: 12),
+                            ] else ...[
+                              Row(
+                                children: [
+                                  const Icon(Icons.check_circle_outline, color: Colors.green, size: 18),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: Text(
+                                      'Active Model: ${_selectedNmtModel!.name}',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.green),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                            ],
                           ],
                         ],
                       ],
