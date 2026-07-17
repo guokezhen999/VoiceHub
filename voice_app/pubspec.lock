@@ -604,6 +604,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.13.4"
+  simulst_macos:
+    dependency: "direct main"
+    description:
+      path: "../simulst/flutter/simulst_macos"
+      relative: true
+    source: path
+    version: "1.0.0"
   sky_engine:
     dependency: transitive
     description: flutter

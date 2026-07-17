@@ -127,7 +127,7 @@ class ModelInfo {
   final String name;
   final String language;
   final String path; // Root folder path of the model
-  final String type; // 'asr', 'tts', 'nmt', or 'llm'
+  final String type; // 'asr', 'tts', 'nmt', 'llm', or 'simulst'
 
   ModelInfo({
     required this.name,
@@ -452,8 +452,29 @@ class ModelInfo {
   String? get nmtDecoderInitPath => _findFile('decoder_init.onnx');
   String? get nmtVocabPath => _findFile('vocab.json');
 
-  // LLM specific resolved paths
+  // LLM / simulst specific resolved paths
   String? get llmModelPath => _findFileEndingWith('.gguf');
+
+  String? get simulstGgufPath {
+    final metaFile = File(p.join(path, 'speechllm_meta.json'));
+    if (metaFile.existsSync()) {
+      try {
+        final data = jsonDecode(metaFile.readAsStringSync());
+        final gguf = data['gguf_file']?.toString();
+        if (gguf != null && gguf.isNotEmpty) {
+          final resolved = p.join(path, gguf);
+          if (File(resolved).existsSync()) return resolved;
+        }
+      } catch (_) {}
+    }
+    return llmModelPath;
+  }
+
+  bool get _hasSimulstSpecialTokenPatch {
+    return _findFile('special_token_input_patch.npz') != null ||
+        _findFile('special_token_input_patch.bin') != null ||
+        _findFile('special_token_embeddings.npz') != null;
+  }
 
   // TTS specific resolved paths
   String? get ttsEncoderPath => _findFile('encoder.onnx');
@@ -624,6 +645,12 @@ class ModelInfo {
           nmtVocabPath != null;
     } else if (type == 'llm') {
       return llmModelPath != null;
+    } else if (type == 'simulst') {
+      return File(p.join(path, 'speechllm_meta.json')).existsSync() &&
+          File(p.join(path, 'metadata.json')).existsSync() &&
+          File(p.join(path, 'init_states.npz')).existsSync() &&
+          simulstGgufPath != null &&
+          _hasSimulstSpecialTokenPatch;
     }
     return false;
   }
@@ -722,7 +749,24 @@ class ModelManager {
     if (!typeRoot.existsSync()) return models;
 
     try {
-      if (type == 'llm') {
+      if (type == 'simulst') {
+        // SpeechLLM export bundles: models/simulst/{model-name}/
+        final modelEntities = typeRoot.listSync(recursive: false);
+        for (var modelEntity in modelEntities) {
+          if (modelEntity is Directory) {
+            final modelName = p.basename(modelEntity.path);
+            final modelInfo = ModelInfo(
+              name: modelName,
+              language: 'multi',
+              path: modelEntity.path,
+              type: type,
+            );
+            if (modelInfo.isValid) {
+              models.add(modelInfo);
+            }
+          }
+        }
+      } else if (type == 'llm') {
         // LLM models can be stored as:
         //   1) Direct .gguf files: models/llm/{model-name}.gguf  (new, file-based)
         //   2) Directories:        models/llm/{model-name}/       (legacy)
@@ -806,7 +850,7 @@ class ModelManager {
     Function(double)? onProgress,
   }) async {
     final typeRoot = await getTypeRoot(type);
-    final destPath = type == 'llm'
+    final destPath = (type == 'llm' || type == 'simulst')
         ? p.join(typeRoot.path, modelName)
         : p.join(typeRoot.path, language, modelName);
     final destDir = Directory(destPath);
@@ -910,8 +954,8 @@ class ModelManager {
     Function(double)? onProgress,
   }) async {
     final typeRoot = await getTypeRoot(type);
-    final String destPath = type == 'llm'
-        ? p.join(typeRoot.path, '$modelName.gguf')
+    final String destPath = (type == 'llm' || type == 'simulst')
+        ? p.join(typeRoot.path, modelName)
         : p.join(typeRoot.path, language, modelName);
     if (type == 'llm') {
       // For LLM, destPath is a file: ensure parent directory exists.
@@ -1183,6 +1227,19 @@ class ModelManager {
         final bestTtsModel = selectBest(onnxFiles, type);
         if (bestTtsModel != null) {
           result[bestTtsModel] = 'model.onnx';
+        }
+      }
+    } else if (type == 'simulst') {
+      for (final path in srcPaths) {
+        final name = p.basename(path);
+        final lower = name.toLowerCase();
+        if (lower.endsWith('.json') ||
+            lower.endsWith('.npz') ||
+            lower.endsWith('.gguf') ||
+            lower.endsWith('.onnx') ||
+            lower.endsWith('.bin') ||
+            lower.endsWith('.onnx.data')) {
+          result[path] = name;
         }
       }
     }

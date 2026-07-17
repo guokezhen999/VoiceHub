@@ -11,6 +11,7 @@ import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/llama_nmt_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
 import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
+import 'package:voice_app/ui/screens/simultaneous_translation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -378,6 +379,46 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ],
                               ),
                               body: CascadeTranslationScreen(showPerfMetrics: showPerfMetrics),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Full-width Simultaneous Interpretation card
+              SizedBox(
+                height: 95,
+                width: double.infinity,
+                child: GridMenuCard(
+                  title: 'Simultaneous Interpretation (同声传译)',
+                  description: 'End-to-end streaming speech recognition & translation',
+                  icon: Icons.hearing_rounded,
+                  gradientColors: const [Color(0xFF0F2027), Color(0xFF203A43)],
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ValueListenableBuilder<bool>(
+                          valueListenable: MyHomePage.showPerfMetricsNotifier,
+                          builder: (context, showPerfMetrics, _) {
+                            return Scaffold(
+                              appBar: AppBar(
+                                title: const Text('Simultaneous Interpretation'),
+                                centerTitle: true,
+                                actions: [
+                                  IconButton(
+                                    icon: const Icon(Icons.settings_outlined),
+                                    onPressed: () => showSettingsBottomSheet(context),
+                                    tooltip: 'Settings',
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ),
+                              body: SimultaneousTranslationScreen(
+                                  showPerfMetrics: showPerfMetrics),
                             );
                           },
                         ),

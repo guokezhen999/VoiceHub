@@ -441,6 +441,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     const SizedBox(height: 6),
                                     DropdownButtonFormField<ModelInfo>(
                                       value: _selectedNmtModel,
+                                      isExpanded: true,
                                       decoration: InputDecoration(
                                         filled: true,
                                         fillColor: Colors.grey.shade50,
@@ -456,7 +457,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                         isDense: true,
                                       ),
                                       items: _nmtModels.map((model) {
-                                        return DropdownMenuItem(value: model, child: Text(model.name));
+                                        return DropdownMenuItem(
+                                          value: model,
+                                          child: Text(model.name, overflow: TextOverflow.ellipsis),
+                                        );
                                       }).toList(),
                                       onChanged: (val) {
                                         setState(() {
@@ -478,6 +482,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     const SizedBox(height: 6),
                                     DropdownButtonFormField<String>(
                                       value: _selectedTargetLang,
+                                      isExpanded: true,
                                       decoration: InputDecoration(
                                         filled: true,
                                         fillColor: Colors.grey.shade50,
@@ -493,7 +498,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                         isDense: true,
                                       ),
                                       items: LanguageManager.languages.map((lang) {
-                                        return DropdownMenuItem(value: lang, child: Text(lang));
+                                        return DropdownMenuItem(
+                                          value: lang,
+                                          child: Text(lang, overflow: TextOverflow.ellipsis),
+                                        );
                                       }).toList(),
                                       onChanged: (val) {
                                         if (val != null) _onLlmLanguageChanged(targetLang: val);
@@ -531,6 +539,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               Expanded(
                                 child: DropdownButtonFormField<String>(
                                   value: _selectedSourceLang,
+                                  isExpanded: true,
                                   decoration: InputDecoration(
                                     labelText: 'Source',
                                     filled: true,
@@ -547,7 +556,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     isDense: true,
                                   ),
                                   items: LanguageManager.languages.map((lang) {
-                                    return DropdownMenuItem(value: lang, child: Text(lang));
+                                    return DropdownMenuItem(
+                                      value: lang,
+                                      child: Text(lang, overflow: TextOverflow.ellipsis),
+                                    );
                                   }).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
@@ -570,6 +582,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               Expanded(
                                 child: DropdownButtonFormField<String>(
                                   value: _selectedTargetLang,
+                                  isExpanded: true,
                                   decoration: InputDecoration(
                                     labelText: 'Target',
                                     filled: true,
@@ -586,7 +599,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                     isDense: true,
                                   ),
                                   items: LanguageManager.languages.map((lang) {
-                                    return DropdownMenuItem(value: lang, child: Text(lang));
+                                    return DropdownMenuItem(
+                                      value: lang,
+                                      child: Text(lang, overflow: TextOverflow.ellipsis),
+                                    );
                                   }).toList(),
                                   onChanged: (val) {
                                     if (val != null) {
@@ -633,6 +649,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
                               const SizedBox(height: 6),
                               DropdownButtonFormField<ModelInfo>(
                                 value: _selectedNmtModel,
+                                isExpanded: true,
                                 decoration: InputDecoration(
                                   filled: true,
                                   fillColor: Colors.grey.shade50,
@@ -648,7 +665,10 @@ class _TranslationScreenState extends State<TranslationScreen> {
                                   isDense: true,
                                 ),
                                 items: currentPairModels.map((model) {
-                                  return DropdownMenuItem(value: model, child: Text(model.name));
+                                  return DropdownMenuItem(
+                                    value: model,
+                                    child: Text(model.name, overflow: TextOverflow.ellipsis),
+                                  );
                                 }).toList(),
                                 onChanged: (val) {
                                   setState(() {

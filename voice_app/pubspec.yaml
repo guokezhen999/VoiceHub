@@ -25,6 +25,8 @@ dependencies:
     path: ../llama/flutter/llamacpp_macos
   voice_engine_macos:
     path: ../voice_engine/flutter/voice_engine_macos
+  simulst_macos:
+    path: ../simulst/flutter/simulst_macos
   file_picker: ^11.0.2
   archive: ^4.0.9
   ffi: ^2.1.0

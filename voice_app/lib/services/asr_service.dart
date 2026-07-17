@@ -106,17 +106,7 @@ class AsrService {
       'num_threads': 1,
       'provider': provider,
       'debug': true,
-      'vad': {
-        'model': sileroModelPath,
-        'threshold': 0.5,
-        'min_silence_duration': 0.5,
-        'min_speech_duration': 0.25,
-        'window_size': 512,
-        'max_speech_duration': 20.0,
-        'sample_rate': 16000,
-        'num_threads': 1,
-        'buffer_size_seconds': 60.0,
-      },
+      ...buildAudioPipelineConfig(sileroModelPath),
       'endpoint': {
         'enable': true,
         'rule1_min_trailing_silence': 2.4,
@@ -155,6 +145,24 @@ class AsrService {
     sampleRate: 16000,
     numChannels: 1,
   );
+
+  /// Shared Silero VAD + circular-buffer settings used by voice_engine and simulst.
+  static Map<String, dynamic> buildAudioPipelineConfig(String sileroModelPath) => {
+        'vad': {
+          'model': sileroModelPath,
+          'threshold': 0.5,
+          'min_silence_duration': 0.5,
+          'min_speech_duration': 0.25,
+          'window_size': 512,
+          'max_speech_duration': 20.0,
+          'sample_rate': 16000,
+          'num_threads': 1,
+          'buffer_size_seconds': 60.0,
+        },
+        'circular_buffer_capacity': 480000,
+        'max_pre_speech_samples': 8000,
+        'max_post_speech_samples': 8000,
+      };
 
   /// Starts an audio stream on [recorder], feeds each chunk into the engine,
   /// and calls [onPoll] with every poll result.

@@ -262,7 +262,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
 
     final targetLanguage = _currentType == 'nmt'
         ? '$_nmtSourceLanguage-$_nmtTargetLanguage'
-        : _currentType == 'llm'
+        : (_currentType == 'llm' || _currentType == 'simulst')
         ? 'multi'
         : _selectedLanguage;
 
@@ -321,7 +321,9 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
           'For ASR: ensure encoder.onnx, decoder.onnx, joiner.onnx, tokens.txt are present.\n'
           'For TTS: ensure a .onnx file and tokens.txt are present.\n'
           'For NMT: ensure encoder_model.onnx, decoder_model.onnx, vocab.json are present.\n'
-          'For LLM: ensure a .gguf file is present.'
+          'For LLM: ensure a .gguf file is present.\n'
+          'For SIMULST: ensure speechllm_meta.json, metadata.json, init_states.npz, '
+          '.gguf, encoder ONNX, and special_token_input_patch are present.'
         );
       }
 
@@ -494,6 +496,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                         ButtonSegment(value: 'tts', label: Text('TTS'), icon: Icon(Icons.speaker_notes)),
                         ButtonSegment(value: 'nmt', label: Text('NMT'), icon: Icon(Icons.translate)),
                         ButtonSegment(value: 'llm', label: Text('LLM'), icon: Icon(Icons.psychology)),
+                        ButtonSegment(value: 'simulst', label: Text('AST'), icon: Icon(Icons.hearing)),
                       ],
                       selected: {_currentType},
                       onSelectionChanged: (value) {
@@ -584,7 +587,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                                 ),
                               ],
                             ),
-                          ] else if (_currentType != 'llm') ...[
+                          ] else if (_currentType != 'llm' && _currentType != 'simulst') ...[
                             Row(
                               children: [
                                 Expanded(
@@ -716,7 +719,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                     )
                   else ...() {
                     final filtered = _models.where((model) {
-                      if (model.type == 'llm' || model.language == 'multi') return true;
+                      if (model.type == 'llm' || model.type == 'simulst' || model.language == 'multi') return true;
                       return model.languages.any((lang) => LanguageManager.enabledLanguages.contains(lang));
                     }).toList();
 
@@ -880,6 +883,8 @@ class _ModelTileState extends State<ModelTile> {
               Icon(
                 widget.model.type == 'llm'
                     ? Icons.psychology
+                    : widget.model.type == 'simulst'
+                        ? Icons.hearing
                     : widget.model.type == 'asr'
                         ? Icons.mic
                         : widget.model.type == 'tts'
@@ -905,7 +910,7 @@ class _ModelTileState extends State<ModelTile> {
                 children: [
                   _buildDetailRow('Model Name', widget.model.name),
                   _buildDetailRow('Type', widget.model.type.toUpperCase()),
-                  if (widget.model.type != 'llm')
+                  if (widget.model.type != 'llm' && widget.model.type != 'simulst')
                     _buildDetailRow('Languages', widget.model.languages.join(', ')),
                   if (widget.model.type == 'asr' || widget.model.type == 'tts')
                     _buildDetailRow('Streaming Support', widget.model.isStreaming ? 'Streaming' : 'Non-Streaming'),
@@ -1004,6 +1009,8 @@ class _ModelTileState extends State<ModelTile> {
               foregroundColor: Colors.blue,
               child: Text(widget.model.type == 'llm'
                   ? 'LM'
+                  : widget.model.type == 'simulst'
+                      ? 'AST'
                   : widget.model.languages.isNotEmpty
                       ? (widget.model.languages.first.length >= 2
                           ? widget.model.languages.first.substring(0, 2).toUpperCase()
@@ -1031,7 +1038,7 @@ class _ModelTileState extends State<ModelTile> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (widget.model.type != 'llm')
+                            if (widget.model.type != 'llm' && widget.model.type != 'simulst')
                               Text(
                                 'Languages: ${widget.model.languages.join(", ")}',
                                 style: const TextStyle(fontSize: 12, color: Colors.black87),
