@@ -191,6 +191,18 @@ class LlamaChatService {
     _history.clear();
   }
 
+  /// Replace in-memory conversation history (e.g. after loading a saved session).
+  ///
+  /// Keeps at most the last 10 messages to match [chatStream] truncation.
+  void setHistory(List<ChatMessage> messages) {
+    _history
+      ..clear()
+      ..addAll(messages.where((m) => m.role == 'user' || m.role == 'assistant'));
+    if (_history.length > 10) {
+      _history.removeRange(0, _history.length - 10);
+    }
+  }
+
   /// The timing result from the most recent [chatStream] call.
   TranslationResult? _lastStreamResult;
   TranslationResult? get lastStreamTiming => _lastStreamResult;
