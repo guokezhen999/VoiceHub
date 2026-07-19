@@ -107,8 +107,8 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
   bool get _isLlamaBackend => _backendType == 'llm';
 
-  void _deinitializeEngine() {
-    _nmtBackend?.release();
+  Future<void> _deinitializeEngine() async {
+    await _nmtBackend?.release();
     _nmtBackend = null;
     setState(() {
       _isConfigExpanded = true;

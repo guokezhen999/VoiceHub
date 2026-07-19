@@ -42,6 +42,9 @@ const kNmtShutdown = 2;
 /// Sentinel sent to the worker to update translation languages.
 const kNmtSetLanguages = 3;
 
+/// Sentinel sent by the worker after native resources have been destroyed.
+const kNmtShutdownDone = 4;
+
 /// Initialisation message sent to the worker isolate.
 class NmtWorkerInit {
   final SendPort sendPort;
@@ -168,5 +171,5 @@ abstract class NmtBackend {
   TranslationResult? get lastStreamTiming;
 
   /// Release the loaded model and free all associated resources.
-  void release();
+  Future<void> release();
 }

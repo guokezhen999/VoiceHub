@@ -1,3 +1,5 @@
+import 'dart:ui' show AppExitResponse;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
@@ -9,6 +11,7 @@ import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/llama_nmt_service.dart';
+import 'package:voice_app/services/llama_chat_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
 import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 import 'package:voice_app/ui/screens/simultaneous_translation_screen.dart';
@@ -38,8 +41,38 @@ void main() async {
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({Key? key}) : super(key: key);
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late final AppLifecycleListener _lifecycleListener;
+
+  @override
+  void initState() {
+    super.initState();
+    // Delay process exit until llama Metal/GPU resources are destroyed.
+    // Without this, Cmd+Q / closing the last window can tear down the
+    // process while ggml Metal is still alive → "unexpectedly quit".
+    _lifecycleListener = AppLifecycleListener(
+      onExitRequested: () async {
+        await Future.wait([
+          LlamaNmtService.releaseAll(),
+          LlamaChatService.releaseAll(),
+        ]);
+        return AppExitResponse.exit;
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycleListener.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

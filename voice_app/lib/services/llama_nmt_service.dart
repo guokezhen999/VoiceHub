@@ -25,11 +25,23 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   final result = await svc.translate("你好世界");
 ///   await svc.release();
 class LlamaNmtService implements NmtBackend {
+  // ---- Live instances (for graceful app exit) ----------------------------
+  static final Set<LlamaNmtService> _liveInstances = {};
+
+  /// Release every loaded Llama NMT instance. Used on app quit.
+  static Future<void> releaseAll() async {
+    final instances = _liveInstances.toList();
+    await Future.wait(instances.map((s) => s.release()));
+  }
+
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
   ReceivePort? _workerReceivePort;
+  StreamSubscription<dynamic>? _workerSub;
   Completer<void>? _readyCompleter;
+  Completer<void>? _shutdownCompleter;
+  Future<void>? _releasing;
 
   ModelInfo? _currentModel;
   String _sourceLang = 'Chinese';
@@ -81,7 +93,12 @@ class LlamaNmtService implements NmtBackend {
 
     // Wait for the worker to signal it is ready.
     final completer = Completer<void>();
-    _workerReceivePort!.listen((message) {
+    _workerSub = _workerReceivePort!.listen((message) {
+      if (message == kNmtShutdownDone) {
+        _shutdownCompleter?.complete();
+        return;
+      }
+
       if (completer.isCompleted) return;
 
       if (message == kNmtReady) {
@@ -91,6 +108,7 @@ class LlamaNmtService implements NmtBackend {
       if (message is SendPort) {
         _workerSendPort = message;
         _currentModel = modelInfo;
+        _liveInstances.add(this);
         _readyCompleter?.complete();
         _readyCompleter = null;
         completer.complete();
@@ -201,22 +219,48 @@ class LlamaNmtService implements NmtBackend {
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
   /// Release the loaded model and terminate the background isolate.
+  ///
+  /// Waits for the worker to finish [destroyTranslator] (Metal/GPU teardown)
+  /// before killing the isolate, avoiding crashes on app exit.
   @override
   Future<void> release() async {
+    if (_releasing != null) return _releasing!;
+    if (_worker == null) return;
+
+    _releasing = _doRelease();
+    try {
+      await _releasing;
+    } finally {
+      _releasing = null;
+    }
+  }
+
+  Future<void> _doRelease() async {
     if (_workerSendPort != null) {
+      _shutdownCompleter = Completer<void>();
       try {
         _workerSendPort!.send(kNmtShutdown);
+        await _shutdownCompleter!.future.timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {},
+        );
       } catch (_) {}
+      _shutdownCompleter = null;
       _workerSendPort = null;
     }
+
+    await _workerSub?.cancel();
+    _workerSub = null;
     _workerReceivePort?.close();
     _workerReceivePort = null;
-    _worker?.kill(priority: Isolate.immediate);
+
+    // Native resources are already freed; a gentle kill is only a fallback.
+    _worker?.kill(priority: Isolate.beforeNextEvent);
     _worker = null;
     _currentModel = null;
     _readyCompleter = null;
+    _liveInstances.remove(this);
   }
-
 }
 
 // ===========================================================================
@@ -316,6 +360,7 @@ void _workerEntryInternal(NmtWorkerInit init) {
   requestPort.listen((message) {
     if (message == kNmtShutdown) {
       destroyTranslator(handle);
+      init.sendPort.send(kNmtShutdownDone);
       requestPort.close();
       return;
     }

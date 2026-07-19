@@ -224,14 +224,14 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     }
   }
 
-  void _deinitializeAll() {
+  Future<void> _deinitializeAll() async {
     _asr.deinitialize();
-    _nmtBackend?.release();
+    await _nmtBackend?.release();
     _nmtBackend = null;
   }
 
-  void _deinitializeMt() {
-    _nmtBackend?.release();
+  Future<void> _deinitializeMt() async {
+    await _nmtBackend?.release();
     _nmtBackend = null;
   }
 

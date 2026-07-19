@@ -27,11 +27,23 @@ typedef _WorkerTokenCallback = Void Function(Pointer<Utf8>, Pointer<Void>);
 ///   svc.chatStream("Hello!").listen((partial) { ... });
 ///   await svc.release();
 class LlamaChatService {
+  // ---- Live instances (for graceful app exit) ----------------------------
+  static final Set<LlamaChatService> _liveInstances = {};
+
+  /// Release every loaded Llama chat instance. Used on app quit.
+  static Future<void> releaseAll() async {
+    final instances = _liveInstances.toList();
+    await Future.wait(instances.map((s) => s.release()));
+  }
+
   // ---- Background-isolate communication ----------------------------------
   Isolate? _worker;
   SendPort? _workerSendPort;
   ReceivePort? _workerReceivePort;
+  StreamSubscription<dynamic>? _workerSub;
   Completer<void>? _readyCompleter;
+  Completer<void>? _shutdownCompleter;
+  Future<void>? _releasing;
 
   ModelInfo? _currentModel;
 
@@ -83,7 +95,12 @@ class LlamaChatService {
 
     // Wait for the worker to signal it is ready.
     final completer = Completer<void>();
-    _workerReceivePort!.listen((message) {
+    _workerSub = _workerReceivePort!.listen((message) {
+      if (message == kNmtShutdownDone) {
+        _shutdownCompleter?.complete();
+        return;
+      }
+
       if (completer.isCompleted) return;
 
       if (message == kNmtReady) {
@@ -94,6 +111,7 @@ class LlamaChatService {
         _workerSendPort = message;
         _currentModel = modelInfo;
         _history.clear();
+        _liveInstances.add(this);
         _readyCompleter?.complete();
         _readyCompleter = null;
         completer.complete();
@@ -178,19 +196,45 @@ class LlamaChatService {
   TranslationResult? get lastStreamTiming => _lastStreamResult;
 
   /// Release the loaded model and terminate the background isolate.
+  ///
+  /// Waits for the worker to finish [destroyTranslator] (Metal/GPU teardown)
+  /// before killing the isolate, avoiding crashes on app exit.
   Future<void> release() async {
+    if (_releasing != null) return _releasing!;
+    if (_worker == null) return;
+
+    _releasing = _doRelease();
+    try {
+      await _releasing;
+    } finally {
+      _releasing = null;
+    }
+  }
+
+  Future<void> _doRelease() async {
     if (_workerSendPort != null) {
+      _shutdownCompleter = Completer<void>();
       try {
         _workerSendPort!.send(kNmtShutdown);
+        await _shutdownCompleter!.future.timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {},
+        );
       } catch (_) {}
+      _shutdownCompleter = null;
       _workerSendPort = null;
     }
+
+    await _workerSub?.cancel();
+    _workerSub = null;
     _workerReceivePort?.close();
     _workerReceivePort = null;
-    _worker?.kill(priority: Isolate.immediate);
+
+    _worker?.kill(priority: Isolate.beforeNextEvent);
     _worker = null;
     _currentModel = null;
     _readyCompleter = null;
+    _liveInstances.remove(this);
   }
 }
 
@@ -308,6 +352,7 @@ void _workerEntryInternal(_ChatWorkerInit init) {
   requestPort.listen((message) {
     if (message == kNmtShutdown) {
       destroyTranslator(handle);
+      init.sendPort.send(kNmtShutdownDone);
       requestPort.close();
       return;
     }

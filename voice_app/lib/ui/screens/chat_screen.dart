@@ -56,8 +56,8 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  void _deinitializeEngine() {
-    _chatService.release();
+  Future<void> _deinitializeEngine() async {
+    await _chatService.release();
     setState(() {
       _isInitialized = false;
       _isConfigExpanded = true;

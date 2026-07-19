@@ -211,9 +211,9 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
   }
 
-  void _deinitializeAll() {
+  Future<void> _deinitializeAll() async {
     _deinitializeAsr();
-    _deinitializeMt();
+    await _deinitializeMt();
     _deinitializeTts();
     _sentenceQueue.clear();
     _isProcessingQueue = false;
@@ -237,8 +237,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     _asr.deinitialize();
   }
 
-  void _deinitializeMt() {
-    _nmtBackend?.release();
+  Future<void> _deinitializeMt() async {
+    await _nmtBackend?.release();
     _nmtBackend = null;
   }
 
