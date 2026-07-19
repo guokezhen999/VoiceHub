@@ -21,6 +21,15 @@ class LanguageManager {
     'Cantonese',
     'Vietnamese',
     'Japanese',
+    'Korean',
+    'Spanish',
+    'French',
+    'German',
+    'Italian',
+    'Russian',
+    'Portuguese',
+    'Arabic',
+    'Thai',
   ];
 
   static List<String> _languages = [];

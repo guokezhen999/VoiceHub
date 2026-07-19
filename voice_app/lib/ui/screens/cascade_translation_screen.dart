@@ -60,6 +60,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   String _selectedSourceLang = 'Chinese';
   String _selectedTargetLang = 'English';
   String _mtMode = 'llm'; // 'nmt' (Opus MT) or 'llm' (Llama GGUF)
+  bool _useTts = true; // Option to enable/disable TTS
 
   ModelInfo? _selectedAsrModel;
   ModelInfo? _selectedNmtModel; // Marian ONNX
@@ -351,34 +352,43 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       }
     }
 
-    // 3. Initialize TTS
-    if (_selectedTtsModel == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a TTS model first.')),
-      );
-      return;
-    }
-    setState(() => _isInitializingTTS = true);
-    try {
-      await _ttsService.initialize(_selectedTtsModel!);
+    // 3. Initialize TTS (if enabled)
+    if (_useTts) {
+      if (_selectedTtsModel == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a TTS model first.')),
+        );
+        return;
+      }
+      setState(() => _isInitializingTTS = true);
+      try {
+        await _ttsService.initialize(_selectedTtsModel!);
 
+        setState(() {
+          _selectedSpeakerId = 0;
+          _isInitializingTTS = false;
+          _pipelineStatus = "Ready";
+          _isConfigExpanded = false;
+        });
+      } catch (e) {
+        setState(() => _isInitializingTTS = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('TTS Initialization Failed: $e')),
+        );
+        return;
+      }
+    } else {
       setState(() {
-        _selectedSpeakerId = 0;
-        _isInitializingTTS = false;
         _pipelineStatus = "Ready";
         _isConfigExpanded = false;
       });
-    } catch (e) {
-      setState(() => _isInitializingTTS = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('TTS Initialization Failed: $e')),
-      );
-      return;
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('All Cascade Translation Engines initialized successfully!'),
+      SnackBar(
+        content: Text(_useTts
+            ? 'All Cascade Translation Engines initialized successfully!'
+            : 'ASR and MT Engines initialized successfully!'),
         backgroundColor: Colors.green,
       ),
     );
@@ -387,7 +397,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   bool get _isEnginesReady {
     return _asr.isInitialized &&
         (_nmtBackend?.isLoaded ?? false) &&
-        _ttsService.isInitialized;
+        (!_useTts || _ttsService.isInitialized);
   }
 
   Future<void> _startRecording() async {
@@ -565,8 +575,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       }
 
       // Enqueue to independent TTS queue (non-blocking)
-      _ttsQueue.add(finalizedTranslation);
-      _processTtsQueue(); // fire-and-forget
+      if (_useTts) {
+        _ttsQueue.add(finalizedTranslation);
+        _processTtsQueue(); // fire-and-forget
+      }
     }
 
     setState(() {
@@ -813,7 +825,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     final steps = [
       {'icon': Icons.mic_rounded, 'label': 'Speech'},
       {'icon': Icons.translate_rounded, 'label': 'Translate'},
-      {'icon': Icons.volume_up_rounded, 'label': 'Speech Out'},
+      if (_useTts) {'icon': Icons.volume_up_rounded, 'label': 'Speech Out'},
     ];
 
     return Container(
@@ -1134,87 +1146,123 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                         ),
                   const SizedBox(height: 16),
 
-                  // --- TTS Model Dropdown ---
-                  _buildDropdownLabel("3. Speech Synthesis Model (TTS)", 'tts'),
-                  const SizedBox(height: 6),
-                  _buildModelDropdown<ModelInfo>(
-                    value: _selectedTtsModel,
-                    items: filteredTtss,
-                    hintText: 'Select TTS Model',
-                    onChanged: (val) {
-                      setState(() {
-                        _selectedTtsModel = val;
-                        _deinitializeTts();
-                      });
-                    },
-                    displayString: (model) => "${model.name} (${model.ttsEngineType})",
+                  // --- TTS Enabled Toggle ---
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "3. Speech Synthesis (TTS)",
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey),
+                      ),
+                      Row(
+                        children: [
+                          Text(
+                            _useTts ? "Enabled" : "Disabled",
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+                          ),
+                          const SizedBox(width: 4),
+                          Switch(
+                            value: _useTts,
+                            activeColor: const Color(0xFF1E3C72),
+                            onChanged: (val) {
+                              setState(() {
+                                _useTts = val;
+                                if (!val) {
+                                  _deinitializeTts();
+                                }
+                                _updateSelectedModels();
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                  const SizedBox(height: 6),
 
-                  // --- TTS Speaker & Speed Settings ---
-                  if (_ttsService.isInitialized && _ttsService.maxSpeakerId > 0) ...[
-                    const SizedBox(height: 16),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('TTS Speaker ID', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(color: Colors.grey.shade200),
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<int>(
-                                    value: _selectedSpeakerId,
-                                    isExpanded: true,
-                                    items: List.generate(_ttsService.maxSpeakerId + 1, (i) {
-                                      return DropdownMenuItem<int>(
-                                        value: i,
-                                        child: Text('Speaker #$i'),
-                                      );
-                                    }),
-                                    onChanged: (val) {
-                                      if (val != null) {
-                                        setState(() {
-                                          _selectedSpeakerId = val;
-                                        });
-                                      }
-                                    },
+                  if (_useTts) ...[
+                    // --- TTS Model Dropdown ---
+                    _buildDropdownLabel("Select TTS Model", 'tts'),
+                    const SizedBox(height: 6),
+                    _buildModelDropdown<ModelInfo>(
+                      value: _selectedTtsModel,
+                      items: filteredTtss,
+                      hintText: 'Select TTS Model',
+                      onChanged: (val) {
+                        setState(() {
+                          _selectedTtsModel = val;
+                          _deinitializeTts();
+                        });
+                      },
+                      displayString: (model) => "${model.name} (${model.ttsEngineType})",
+                    ),
+
+                    // --- TTS Speaker & Speed Settings ---
+                    if (_ttsService.isInitialized && _ttsService.maxSpeakerId > 0) ...[
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('TTS Speaker ID', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: DropdownButtonHideUnderline(
+                                    child: DropdownButton<int>(
+                                      value: _selectedSpeakerId,
+                                      isExpanded: true,
+                                      items: List.generate(_ttsService.maxSpeakerId + 1, (i) {
+                                        return DropdownMenuItem<int>(
+                                          value: i,
+                                          child: Text('Speaker #$i'),
+                                        );
+                                      }),
+                                      onChanged: (val) {
+                                        if (val != null) {
+                                          setState(() {
+                                            _selectedSpeakerId = val;
+                                          });
+                                        }
+                                      },
+                                    ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Speed: ${_ttsSpeed.toStringAsFixed(1)}x', style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                              Slider(
-                                value: _ttsSpeed,
-                                min: 0.5,
-                                max: 2.0,
-                                divisions: 15,
-                                label: '${_ttsSpeed.toStringAsFixed(1)}x',
-                                activeColor: const Color(0xFF1E3C72),
-                                onChanged: (val) {
-                                  setState(() {
-                                    _ttsSpeed = val;
-                                  });
-                                },
-                              ),
-                            ],
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('Speed: ${_ttsSpeed.toStringAsFixed(1)}x', style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                Slider(
+                                  value: _ttsSpeed,
+                                  min: 0.5,
+                                  max: 2.0,
+                                  divisions: 15,
+                                  label: '${_ttsSpeed.toStringAsFixed(1)}x',
+                                  activeColor: const Color(0xFF1E3C72),
+                                  onChanged: (val) {
+                                    setState(() {
+                                      _ttsSpeed = val;
+                                    });
+                                  },
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                   ],
 
                   const SizedBox(height: 20),
@@ -1672,10 +1720,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 width: 52,
                 height: 52,
                 child: AnimatedOpacity(
-                  opacity: (_ttsService.isInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
+                  opacity: (_useTts && _ttsService.isInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
                   child: IgnorePointer(
-                    ignoring: !(_ttsService.isInitialized && _cascadeSegments.isNotEmpty),
+                    ignoring: !(_useTts && _ttsService.isInitialized && _cascadeSegments.isNotEmpty),
                     child: GestureDetector(
                       behavior: HitTestBehavior.opaque,
                       onTap: (_isTtsPlaying || _isProcessingTtsQueue)

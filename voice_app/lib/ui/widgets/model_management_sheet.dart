@@ -81,34 +81,98 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                     ),
                     const SizedBox(height: 12),
                     Flexible(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: LanguageManager.languages.length,
-                        itemBuilder: (context, index) {
-                          final lang = LanguageManager.languages[index];
-                          final isEnabled = LanguageManager.enabledLanguages.contains(lang);
-                          final isDefault = LanguageManager.defaultLanguages.contains(lang);
+                      child: SingleChildScrollView(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4.0),
+                          child: GridView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 8,
+                              mainAxisSpacing: 8,
+                              childAspectRatio: 3.2,
+                            ),
+                            itemCount: LanguageManager.languages.length,
+                            itemBuilder: (context, index) {
+                              final lang = LanguageManager.languages[index];
+                              final isEnabled = LanguageManager.enabledLanguages.contains(lang);
+                              final isDefault = LanguageManager.defaultLanguages.contains(lang);
 
-                          return CheckboxListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(lang, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-                            value: isEnabled,
-                            secondary: isDefault
-                                ? null
-                                : IconButton(
-                                    icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
-                                    onPressed: () async {
-                                      await LanguageManager.removeLanguage(lang);
-                                      setDialogState(() {});
-                                    },
-                                    tooltip: 'Delete custom language',
+                              return InkWell(
+                                onTap: () async {
+                                  await LanguageManager.toggleLanguage(lang, !isEnabled);
+                                  setDialogState(() {});
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 150),
+                                  decoration: BoxDecoration(
+                                    color: isEnabled
+                                        ? const Color(0xFF1E3C72).withOpacity(0.08)
+                                        : Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isEnabled
+                                          ? const Color(0xFF1E3C72)
+                                          : Colors.grey.shade300,
+                                      width: isEnabled ? 1.5 : 1.0,
+                                    ),
                                   ),
-                            onChanged: (val) async {
-                              await LanguageManager.toggleLanguage(lang, val == true);
-                              setDialogState(() {});
+                                  child: Stack(
+                                    children: [
+                                      Center(
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
+                                          child: Text(
+                                            lang,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: isEnabled
+                                                  ? const Color(0xFF1E3C72)
+                                                  : Colors.grey.shade700,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                      if (!isDefault)
+                                        Positioned(
+                                          right: 2,
+                                          top: 2,
+                                          child: GestureDetector(
+                                            onTap: () async {
+                                              await LanguageManager.removeLanguage(lang);
+                                              setDialogState(() {});
+                                            },
+                                            child: Container(
+                                              padding: const EdgeInsets.all(2),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: Colors.black.withOpacity(0.1),
+                                                    blurRadius: 2,
+                                                  )
+                                                ],
+                                              ),
+                                              child: const Icon(
+                                                Icons.close_rounded,
+                                                color: Colors.redAccent,
+                                                size: 12,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
                             },
-                          );
-                        },
+                          ),
+                        ),
                       ),
                     ),
                     const Divider(),

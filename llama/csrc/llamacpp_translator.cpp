@@ -4,6 +4,7 @@
 #include "nlohmann/json.hpp"
 
 #include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <algorithm>
@@ -12,6 +13,20 @@
 #include <string>
 #include <stdexcept>
 #include <regex>
+
+// ---------------------------------------------------------------------------
+// Detect Hunyuan Hy-MT / Hy-MT2 translation models from model path.
+// ---------------------------------------------------------------------------
+
+static bool IsHunyuanMtModel(const std::string& model_path) {
+    std::string lower = model_path;
+    std::transform(lower.begin(), lower.end(), lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return lower.find("hy-mt") != std::string::npos ||
+           lower.find("hy_mt") != std::string::npos ||
+           lower.find("hunyuan-mt") != std::string::npos ||
+           lower.find("hunyuan_mt") != std::string::npos;
+}
 
 // ---------------------------------------------------------------------------
 // Strip <think>...</think> blocks and leading </think> from model output
@@ -215,8 +230,28 @@ std::string LlamaTranslator::BuildPrompt(const std::string& source_text) {
         for (size_t i = 0; i < saved_roles_.size(); i++) {
             messages.push_back({saved_roles_[i].c_str(), saved_contents_[i].c_str()});
         }
+    } else if (IsHunyuanMtModel(config_.model_path)) {
+        // ---- Hunyuan Hy-MT series: official single-user prompt ----
+        // Translate the following text into {target_lang}. Note that you should
+        // only output the translated result without any additional explanation:
+        //
+        // {source_text}
+        std::string user_content =
+            "Translate the following text into " + config_.target_lang +
+            ". Note that you should only output the translated result without any additional explanation:\n\n" +
+            source_text;
+
+        saved_contents_.push_back(user_content);
+        messages = {
+            {"user", saved_contents_.back().c_str()},
+        };
+
+        // No fixed system prefix to cache for Hy-MT prompts.
+        last_tokens_.clear();
+        sys_prompt_cached_ = false;
+        sys_prompt_len_ = 0;
     } else {
-        // ---- Translation mode (original behavior) ----
+        // ---- Translation mode (default behavior) ----
         std::string system_prompt =
             "You are a professional translator. Translate the following text from " +
             config_.source_lang + " to " + config_.target_lang +

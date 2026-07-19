@@ -151,8 +151,8 @@ class AsrService {
         'vad': {
           'model': sileroModelPath,
           'threshold': 0.5,
-          'min_silence_duration': 0.5,
-          'min_speech_duration': 0.25,
+          'min_silence_duration': 0.3,
+          'min_speech_duration': 0.3,
           'window_size': 512,
           'max_speech_duration': 20.0,
           'sample_rate': 16000,

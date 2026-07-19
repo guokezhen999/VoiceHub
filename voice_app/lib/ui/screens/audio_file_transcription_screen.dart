@@ -81,7 +81,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
   ModelInfo? _selectedLlmModel;
   String _selectedSourceLang = 'Chinese';
   String _selectedTargetLang = 'English';
-  String _mtMode = 'nmt'; // 'nmt' (Opus MT) or 'llm' (Llama GGUF)
+  String _mtMode = 'llm'; // 'llm' (Llama GGUF) or 'nmt' (Opus MT)
   bool _enableTranslation = true;
 
   // Audio File State
@@ -933,8 +933,8 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                     const SizedBox(height: 6),
                     SegmentedButton<String>(
                       segments: const [
-                        ButtonSegment(value: 'nmt', label: Text('Opus MT'), icon: Icon(Icons.translate_rounded)),
                         ButtonSegment(value: 'llm', label: Text('Llama LLM'), icon: Icon(Icons.psychology_rounded)),
+                        ButtonSegment(value: 'nmt', label: Text('Opus MT'), icon: Icon(Icons.translate_rounded)),
                       ],
                       selected: {_mtMode},
                       onSelectionChanged: (selection) {

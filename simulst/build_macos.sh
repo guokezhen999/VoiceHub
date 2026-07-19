@@ -92,3 +92,10 @@ PLUGIN_DIR="${SCRIPT_DIR}/flutter/simulst_macos/macos"
 mkdir -p "${PLUGIN_DIR}"
 cp "${DYLIB}" "${PLUGIN_DIR}/"
 echo "Copied to ${PLUGIN_DIR}/libsimulst.dylib"
+
+# Copy libkaldi-native-fbank-core.dylib if built as a shared library
+FBANK_DYLIB="${BUILD_DIR}/lib/libkaldi-native-fbank-core.dylib"
+if [ -f "${FBANK_DYLIB}" ]; then
+  cp "${FBANK_DYLIB}" "${PLUGIN_DIR}/"
+  echo "Copied to ${PLUGIN_DIR}/libkaldi-native-fbank-core.dylib"
+fi
