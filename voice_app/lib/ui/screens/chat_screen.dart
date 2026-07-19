@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/llama_chat_service.dart';
@@ -15,6 +16,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final LlamaChatService _chatService = LlamaChatService();
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
 
   bool _isInitialized = false;
@@ -254,11 +256,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
-                  child: ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _bubbles.length,
-                    itemBuilder: (context, index) => _buildBubble(_bubbles[index]),
+                  // SelectionArea enables mouse/long-press select + copy for
+                  // message bubbles. Keep TextField outside this tree.
+                  child: SelectionArea(
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _bubbles.length,
+                      itemBuilder: (context, index) => _buildBubble(
+                        _bubbles[index],
+                        isStreaming: _isGenerating && index == _bubbles.length - 1,
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -300,7 +309,9 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       child: TextField(
                         controller: _inputController,
+                        focusNode: _inputFocusNode,
                         maxLength: 500,
+                        enableInteractiveSelection: true,
                         style: const TextStyle(fontSize: 15, color: Color(0xFF2D3748)),
                         decoration: InputDecoration(
                           hintText: 'Type a message...',
@@ -313,6 +324,11 @@ class _ChatScreenState extends State<ChatScreen> {
                         minLines: 1,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _sendMessage(),
+                        contextMenuBuilder: (context, editableTextState) {
+                          return AdaptiveTextSelectionToolbar.editableText(
+                            editableTextState: editableTextState,
+                          );
+                        },
                       ),
                     ),
                   ),
@@ -527,7 +543,7 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
-  Widget _buildBubble(_ChatBubble bubble) {
+  Widget _buildBubble(_ChatBubble bubble, {required bool isStreaming}) {
     final isUser = bubble.role == 'user';
     final alignment = isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start;
     final userBgColor = const Color(0xFF1E3C72);
@@ -572,6 +588,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 : _AssistantMessageWidget(
                     text: bubble.text,
                     isError: bubble.isError,
+                    isStreaming: isStreaming,
                   ),
           ),
         ],
@@ -583,6 +600,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     ModelManager.changeNotifier.removeListener(_loadModels);
     _inputController.dispose();
+    _inputFocusNode.dispose();
     _scrollController.dispose();
     _chatService.release();
     super.dispose();
@@ -651,10 +669,13 @@ class ParsedMessage {
 class _AssistantMessageWidget extends StatefulWidget {
   final String text;
   final bool isError;
+  final bool isStreaming;
+
   const _AssistantMessageWidget({
     Key? key,
     required this.text,
     required this.isError,
+    this.isStreaming = false,
   }) : super(key: key);
 
   @override
@@ -664,18 +685,84 @@ class _AssistantMessageWidget extends StatefulWidget {
 class _AssistantMessageWidgetState extends State<_AssistantMessageWidget> {
   bool? _isCollapsed;
 
+  static const _baseTextStyle = TextStyle(
+    fontSize: 14,
+    color: Colors.black87,
+    height: 1.4,
+  );
+
+  MarkdownStyleSheet _markdownStyle(BuildContext context) {
+    final theme = Theme.of(context);
+    return MarkdownStyleSheet.fromTheme(theme).copyWith(
+      p: _baseTextStyle,
+      a: _baseTextStyle.copyWith(
+        color: const Color(0xFF1E3C72),
+        decoration: TextDecoration.underline,
+      ),
+      h1: _baseTextStyle.copyWith(fontSize: 20, fontWeight: FontWeight.bold),
+      h2: _baseTextStyle.copyWith(fontSize: 18, fontWeight: FontWeight.bold),
+      h3: _baseTextStyle.copyWith(fontSize: 16, fontWeight: FontWeight.bold),
+      h4: _baseTextStyle.copyWith(fontSize: 15, fontWeight: FontWeight.bold),
+      strong: _baseTextStyle.copyWith(fontWeight: FontWeight.bold),
+      em: _baseTextStyle.copyWith(fontStyle: FontStyle.italic),
+      listBullet: _baseTextStyle,
+      blockquote: _baseTextStyle.copyWith(color: Colors.grey.shade700),
+      blockquoteDecoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(4),
+        border: Border(
+          left: BorderSide(color: Colors.grey.shade400, width: 3),
+        ),
+      ),
+      code: TextStyle(
+        fontSize: 13,
+        fontFamily: 'monospace',
+        color: const Color(0xFF2D3748),
+        backgroundColor: Colors.grey.shade200,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      codeblockPadding: const EdgeInsets.all(12),
+      horizontalRuleDecoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(color: Colors.grey.shade300, width: 1),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildResponseBody(String text) {
+    if (text.isEmpty) {
+      return const Text('...', style: _baseTextStyle);
+    }
+    if (widget.isError) {
+      return Text(
+        text,
+        style: _baseTextStyle.copyWith(color: Colors.red),
+      );
+    }
+    // Stream incomplete markdown as plain text to avoid flicker / broken parsing.
+    if (widget.isStreaming) {
+      return Text(text, style: _baseTextStyle);
+    }
+    // selectable: false — parent SelectionArea owns selection/copy (more
+    // reliable on desktop than MarkdownBody's SelectableText).
+    return MarkdownBody(
+      data: text,
+      selectable: false,
+      styleSheet: _markdownStyle(context),
+      softLineBreak: true,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final parsed = ParsedMessage.parse(widget.text);
 
     if (!parsed.hasThinking) {
-      return Text(
-        widget.text.isEmpty ? '...' : widget.text,
-        style: TextStyle(
-          fontSize: 14,
-          color: widget.isError ? Colors.red : Colors.black87,
-        ),
-      );
+      return _buildResponseBody(widget.text);
     }
 
     // Default to expanded while thinking, and collapsed when thinking is complete
@@ -750,14 +837,7 @@ class _AssistantMessageWidgetState extends State<_AssistantMessageWidget> {
         if (parsed.isThinkingComplete)
           Padding(
             padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              parsed.response.trim().isEmpty ? '...' : parsed.response.trim(),
-              style: TextStyle(
-                fontSize: 14,
-                color: widget.isError ? Colors.red : Colors.black87,
-                height: 1.4,
-              ),
-            ),
+            child: _buildResponseBody(parsed.response.trim()),
           ),
       ],
     );
