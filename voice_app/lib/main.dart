@@ -13,6 +13,7 @@ import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/llama_nmt_service.dart';
 import 'package:voice_app/services/llama_chat_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
+import 'package:voice_app/ui/screens/dual_dialogue_screen.dart';
 import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 import 'package:voice_app/ui/screens/simultaneous_translation_screen.dart';
 import 'package:voice_app/services/vad_settings.dart';
@@ -79,12 +80,12 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Sherpa Onnx Offline SDK Demo',
+      title: 'Voice Hub',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const MyHomePage(title: 'Voice App - Offline Speech Hub'),
+      home: const MyHomePage(title: 'Voice Hub'),
     );
   }
 }
@@ -167,7 +168,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         ),
                         const SizedBox(width: 12),
                         const Text(
-                          'VoiceHub SDK',
+                          'Voice Hub',
                           style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.w800,
@@ -414,6 +415,45 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ],
                               ),
                               body: CascadeTranslationScreen(showPerfMetrics: showPerfMetrics),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 16),
+              // Full-width Dual Dialogue card
+              SizedBox(
+                height: 95,
+                width: double.infinity,
+                child: GridMenuCard(
+                  title: 'Dual Dialogue (双人对话)',
+                  description: 'Two-sided ASR/MT/TTS with shared LLM translation',
+                  icon: Icons.people_alt_rounded,
+                  gradientColors: const [Color(0xFF134E5E), Color(0xFF71B280)],
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ValueListenableBuilder<bool>(
+                          valueListenable: MyHomePage.showPerfMetricsNotifier,
+                          builder: (context, showPerfMetrics, _) {
+                            return Scaffold(
+                              appBar: AppBar(
+                                title: const Text('Dual Dialogue'),
+                                centerTitle: true,
+                                actions: [
+                                  IconButton(
+                                    icon: const Icon(Icons.settings_outlined),
+                                    onPressed: () => showSettingsBottomSheet(context),
+                                    tooltip: 'Settings',
+                                  ),
+                                  const SizedBox(width: 8),
+                                ],
+                              ),
+                              body: DualDialogueScreen(showPerfMetrics: showPerfMetrics),
                             );
                           },
                         ),

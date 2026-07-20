@@ -17,6 +17,10 @@ class AudioFileHistorySheet extends StatefulWidget {
   final Future<void> Function(String id)? deleteItem;
   final Future<void> Function(String id, String newName)? renameItem;
 
+  /// When true, preview shows translation under the original in one bubble
+  /// (dual-dialogue style) instead of opposite-side bubbles.
+  final bool stackedTranslationPreview;
+
   const AudioFileHistorySheet({
     Key? key,
     this.title = 'Audio Transcription History',
@@ -25,6 +29,7 @@ class AudioFileHistorySheet extends StatefulWidget {
     this.loadSession,
     this.deleteItem,
     this.renameItem,
+    this.stackedTranslationPreview = false,
   }) : super(key: key);
 
   @override
@@ -141,6 +146,7 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
         builder: (context) => _AudioFileHistoryPreviewSheet(
           session: session,
           formatTime: _formatTime,
+          stackedTranslation: widget.stackedTranslationPreview,
         ),
       );
     } finally {
@@ -366,11 +372,13 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
 class _AudioFileHistoryPreviewSheet extends StatefulWidget {
   final AudioFileHistorySession session;
   final String Function(DateTime) formatTime;
+  final bool stackedTranslation;
 
   const _AudioFileHistoryPreviewSheet({
     Key? key,
     required this.session,
     required this.formatTime,
+    this.stackedTranslation = false,
   }) : super(key: key);
 
   @override
@@ -766,8 +774,6 @@ class _AudioFileHistoryPreviewSheetState extends State<_AudioFileHistoryPreviewS
           ),
 
           // Chat-like Transcription Bubbles
-          // We render the original text (speaker) on one side, and the translation (AI helper) on the other.
-          // This represents an LLM chat log format!
           Expanded(
             child: SelectionArea(
               child: ListView.builder(
@@ -777,114 +783,10 @@ class _AudioFileHistoryPreviewSheetState extends State<_AudioFileHistoryPreviewS
                 itemBuilder: (context, index) {
                   final seg = widget.session.subtitles[index];
                   final isCurrent = _currentPlayingIndex == index;
-                  final hasTranslation = seg.translatedText.isNotEmpty;
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 16),
-                    child: Column(
-                      children: [
-                        // Timestamp helper
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade200,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                'Segment #${seg.index} [${seg.formatTime(seg.start)} - ${seg.formatTime(seg.end)}]',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  color: isCurrent ? const Color(0xFF1E3C72) : Colors.grey.shade600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-
-                        // Original transcript (Right aligned: User speech bubble)
-                        GestureDetector(
-                          onTap: () => _seekToSegment(seg, index),
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: Container(
-                              constraints: BoxConstraints(
-                                maxWidth: MediaQuery.of(context).size.width * 0.75,
-                              ),
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              decoration: BoxDecoration(
-                                color: isCurrent ? const Color(0xFF1E3C72) : Colors.indigo.shade50,
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(16),
-                                  topRight: Radius.circular(16),
-                                  bottomLeft: Radius.circular(16),
-                                  bottomRight: Radius.circular(4),
-                                ),
-                                border: isCurrent ? null : Border.all(color: Colors.indigo.shade100),
-                              ),
-                              child: Text(
-                                seg.originalText,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  height: 1.4,
-                                  fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
-                                  color: isCurrent ? Colors.white : const Color(0xFF1A365D),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        
-                        if (hasTranslation) ...[
-                          const SizedBox(height: 6),
-                          // Translation result (Left aligned: Assistant translation bubble)
-                          GestureDetector(
-                            onTap: () => _seekToSegment(seg, index),
-                            child: Align(
-                              alignment: Alignment.centerLeft,
-                              child: Container(
-                                constraints: BoxConstraints(
-                                  maxWidth: MediaQuery.of(context).size.width * 0.75,
-                                ),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: isCurrent ? Colors.teal.shade700 : Colors.white,
-                                  borderRadius: const BorderRadius.only(
-                                    topLeft: Radius.circular(16),
-                                    topRight: Radius.circular(16),
-                                    bottomLeft: Radius.circular(4),
-                                    bottomRight: Radius.circular(16),
-                                  ),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Colors.black12,
-                                      blurRadius: 2,
-                                      offset: Offset(0, 1),
-                                    ),
-                                  ],
-                                  border: Border.all(color: isCurrent ? Colors.teal.shade800 : Colors.grey.shade200),
-                                ),
-                                child: Text(
-                                  seg.translatedText,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    height: 1.4,
-                                    fontStyle: FontStyle.italic,
-                                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
-                                    color: isCurrent ? Colors.white : Colors.teal.shade900,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  );
+                  if (widget.stackedTranslation) {
+                    return _buildStackedBubble(seg, index, isCurrent);
+                  }
+                  return _buildSplitBubbles(seg, index, isCurrent);
                 },
               ),
             ),
@@ -903,5 +805,203 @@ class _AudioFileHistoryPreviewSheetState extends State<_AudioFileHistoryPreviewS
         ),
     ],
   );
-}
+  }
+
+  Widget _buildStackedBubble(SubtitleSegment seg, int index, bool isCurrent) {
+    final isA = seg.side != 'B';
+    final bg = isCurrent
+        ? (isA ? const Color(0xFFD6E0F0) : const Color(0xFFD0EBE6))
+        : (isA ? const Color(0xFFE8EEF7) : const Color(0xFFE6F5F2));
+    final border = isA ? const Color(0xFFC5D4EA) : const Color(0xFFB7E0D8);
+    final hasTranslation = seg.translatedText.trim().isNotEmpty;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Segment #${seg.index} [${seg.formatTime(seg.start)} - ${seg.formatTime(seg.end)}]',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: isCurrent ? const Color(0xFF1E3C72) : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: () => _seekToSegment(seg, index),
+            child: Align(
+              alignment: isA ? Alignment.centerLeft : Alignment.centerRight,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: isCurrent ? const Color(0xFF1E3C72) : border,
+                      width: isCurrent ? 1.5 : 1,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        seg.originalText.trim().isEmpty ? '...' : seg.originalText,
+                        style: TextStyle(
+                          fontSize: 14,
+                          height: 1.4,
+                          fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+                          color: const Color(0xFF2D3748),
+                        ),
+                      ),
+                      if (hasTranslation) ...[
+                        const SizedBox(height: 6),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.only(top: 6),
+                          decoration: BoxDecoration(
+                            border: Border(top: BorderSide(color: border)),
+                          ),
+                          child: Text(
+                            seg.translatedText,
+                            style: TextStyle(
+                              fontSize: 13,
+                              height: 1.35,
+                              color: Colors.grey.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSplitBubbles(SubtitleSegment seg, int index, bool isCurrent) {
+    final hasTranslation = seg.translatedText.isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade200,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'Segment #${seg.index} [${seg.formatTime(seg.start)} - ${seg.formatTime(seg.end)}]',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.bold,
+                    color: isCurrent ? const Color(0xFF1E3C72) : Colors.grey.shade600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          GestureDetector(
+            onTap: () => _seekToSegment(seg, index),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.75,
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isCurrent ? const Color(0xFF1E3C72) : Colors.indigo.shade50,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                    bottomLeft: Radius.circular(16),
+                    bottomRight: Radius.circular(4),
+                  ),
+                  border: isCurrent ? null : Border.all(color: Colors.indigo.shade100),
+                ),
+                child: Text(
+                  seg.originalText,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.4,
+                    fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+                    color: isCurrent ? Colors.white : const Color(0xFF1A365D),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (hasTranslation) ...[
+            const SizedBox(height: 6),
+            GestureDetector(
+              onTap: () => _seekToSegment(seg, index),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.75,
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isCurrent ? Colors.teal.shade700 : Colors.white,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(16),
+                      topRight: Radius.circular(16),
+                      bottomLeft: Radius.circular(4),
+                      bottomRight: Radius.circular(16),
+                    ),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 2,
+                        offset: Offset(0, 1),
+                      ),
+                    ],
+                    border: Border.all(color: isCurrent ? Colors.teal.shade800 : Colors.grey.shade200),
+                  ),
+                  child: Text(
+                    seg.translatedText,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.4,
+                      fontStyle: FontStyle.italic,
+                      fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+                      color: isCurrent ? Colors.white : Colors.teal.shade900,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
 }

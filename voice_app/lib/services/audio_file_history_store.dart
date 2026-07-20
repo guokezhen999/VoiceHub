@@ -120,6 +120,7 @@ class AudioFileHistorySession {
               end: (e['end'] as num).toDouble(),
               originalText: e['originalText'] as String,
               translatedText: e['translatedText'] as String? ?? '',
+              side: e['side'] as String?,
             ))
         .toList();
     return AudioFileHistorySession(
@@ -151,6 +152,7 @@ class AudioFileHistorySession {
                   'end': s.end,
                   'originalText': s.originalText,
                   'translatedText': s.translatedText,
+                  if (s.side != null) 'side': s.side,
                 })
             .toList(),
       };

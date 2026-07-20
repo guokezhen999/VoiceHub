@@ -247,7 +247,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       if (!_asr.isInitialized) {
         await _asr.initialize(_selectedAsrModel!);
       } else {
-        _asr.reset();
+        await _asr.reset();
       }
 
       if (_enableTranslation) {
@@ -513,7 +513,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
 
     try {
       // Models are already loaded since we enforced flow: load models -> pick file.
-      _asr.reset();
+      await _asr.reset();
 
       final samples = _audioSamples!;
       final totalSamples = samples.length;
@@ -530,8 +530,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
         final end = (i + chunkSize < totalSamples) ? i + chunkSize : totalSamples;
         final chunk = samples.sublist(i, end);
 
-        VoiceEngineBridge.instance.acceptWaveform(_asr.handle!, chunk);
-        final pollResult = VoiceEngineBridge.instance.poll(_asr.handle!);
+        final pollResult = await _asr.acceptAndPoll(chunk);
 
         await _handlePollResult(pollResult);
 
@@ -562,7 +561,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
 
       // Flush VAD tail
       if (mounted && _isProcessing) {
-        final lastPoll = _asr.flushAndPoll();
+        final lastPoll = await _asr.flushAndPoll();
         await _handlePollResult(lastPoll);
       }
 

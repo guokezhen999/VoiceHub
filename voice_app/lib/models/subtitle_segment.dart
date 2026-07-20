@@ -1,9 +1,12 @@
 class SubtitleSegment {
   final int index;
   final double start; // seconds
-  final double end;   // seconds
+  final double end; // seconds
   final String originalText;
   String translatedText;
+
+  /// Optional speaker side for dual-dialogue history ('A' | 'B').
+  final String? side;
 
   SubtitleSegment({
     required this.index,
@@ -11,6 +14,7 @@ class SubtitleSegment {
     required this.end,
     required this.originalText,
     this.translatedText = '',
+    this.side,
   });
 
   String formatTime(double seconds) {

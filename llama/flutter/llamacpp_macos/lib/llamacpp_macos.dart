@@ -13,6 +13,9 @@ DynamicLibrary loadLlamaLibrary() {
   if (Platform.isIOS) {
     return DynamicLibrary.open('llamacpp_nmt.framework/llamacpp_nmt');
   }
+  if (Platform.isAndroid || Platform.isLinux) {
+    return DynamicLibrary.open('libllamacpp_nmt.so');
+  }
   throw UnsupportedError(
       'llamacpp: unsupported platform ${Platform.operatingSystem}');
 }

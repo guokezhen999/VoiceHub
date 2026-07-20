@@ -125,11 +125,11 @@ class _AsrScreenState extends State<AsrScreen> {
   }
 
   Future<void> _startRecording() async {
-    if (!_asr.isInitialized || _asr.handle == null) return;
+    if (!_asr.isInitialized) return;
 
     try {
       if (await _audioRecorder.hasPermission()) {
-        _asr.reset();
+        await _asr.reset();
 
         setState(() {
           _currentResult = "";
@@ -170,8 +170,8 @@ class _AsrScreenState extends State<AsrScreen> {
     _audioStreamSub = null;
     await _audioRecorder.stop();
 
-    if (_asr.handle != null) {
-      final r = _asr.flushAndPoll();
+    if (_asr.isInitialized) {
+      final r = await _asr.flushAndPoll();
       _onPoll(r);
     }
 

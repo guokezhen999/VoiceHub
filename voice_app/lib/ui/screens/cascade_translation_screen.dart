@@ -429,7 +429,7 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       if (await _audioRecorder.hasPermission()) {
         await _audioPlayer.stop();
 
-        _asr.reset();
+        await _asr.reset();
 
         setState(() {
           _asrText = _sentences.join(" ");
@@ -523,8 +523,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _audioStreamSub = null;
 
       // Flush the VAD tail and drain any remaining finalized segments.
-      if (_asr.handle != null) {
-        final r = _asr.flushAndPoll();
+      if (_asr.isInitialized) {
+        final r = await _asr.flushAndPoll();
         for (int i = 0; i < r.finalized.length; i++) {
           final f = r.finalized[i];
           var text = AsrService.stripLeadingPuncs(f);
