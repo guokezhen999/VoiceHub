@@ -15,43 +15,11 @@ import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
-
-class SubtitleSegment {
-  final int index;
-  final double start; // seconds
-  final double end;   // seconds
-  final String originalText;
-  String translatedText;
-
-  SubtitleSegment({
-    required this.index,
-    required this.start,
-    required this.end,
-    required this.originalText,
-    this.translatedText = '',
-  });
-
-  String formatTime(double seconds) {
-    final duration = Duration(milliseconds: (seconds * 1000).round());
-    final hours = duration.inHours.toString().padLeft(2, '0');
-    final minutes = (duration.inMinutes % 60).toString().padLeft(2, '0');
-    final secs = (duration.inSeconds % 60).toString().padLeft(2, '0');
-    final ms = (duration.inMilliseconds % 1000).toString().padLeft(3, '0');
-    return '$hours:$minutes:$secs,$ms';
-  }
-
-  String toSrtString() {
-    final buffer = StringBuffer();
-    buffer.writeln(index);
-    buffer.writeln('${formatTime(start)} --> ${formatTime(end)}');
-    buffer.writeln(originalText);
-    if (translatedText.isNotEmpty) {
-      buffer.writeln(translatedText);
-    }
-    buffer.writeln();
-    return buffer.toString();
-  }
-}
+import 'package:path/path.dart' as p;
+import 'package:voice_app/models/subtitle_segment.dart';
+import 'package:voice_app/services/audio_file_history_store.dart';
+import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/services/subtitle_export_service.dart';
 
 class AudioFileTranscriptionScreen extends StatefulWidget {
   final bool showPerfMetrics;
@@ -228,11 +196,120 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     _asr.deinitialize();
     await _nmtBackend?.release();
     _nmtBackend = null;
+    setState(() {
+      _selectedFilePath = null;
+      _selectedFileName = null;
+      _audioSamples = null;
+      _subtitles = [];
+    });
   }
 
   Future<void> _deinitializeMt() async {
     await _nmtBackend?.release();
     _nmtBackend = null;
+    setState(() {
+      _selectedFilePath = null;
+      _selectedFileName = null;
+      _audioSamples = null;
+      _subtitles = [];
+    });
+  }
+
+  Future<void> _initializeModels() async {
+    if (_selectedAsrModel == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select an ASR model.')),
+      );
+      return;
+    }
+
+    if (_enableTranslation) {
+      if (_mtMode == 'nmt' && _selectedNmtModel == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select an Opus NMT model.')),
+        );
+        return;
+      }
+      if (_mtMode == 'llm' && _selectedLlmModel == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select an LLM model.')),
+        );
+        return;
+      }
+    }
+
+    setState(() {
+      _isProcessing = true;
+    });
+
+    try {
+      if (!_asr.isInitialized) {
+        await _asr.initialize(_selectedAsrModel!);
+      } else {
+        _asr.reset();
+      }
+
+      if (_enableTranslation) {
+        if (_mtMode == 'llm') {
+          final llmBackend = _nmtBackend is LlamaNmtService
+              ? _nmtBackend as LlamaNmtService
+              : null;
+          final needReload = llmBackend == null ||
+              llmBackend.currentModel?.path != _selectedLlmModel!.path;
+          if (needReload) {
+            _nmtBackend?.release();
+            _nmtBackend = LlamaNmtService();
+            await _nmtBackend!.loadModel(
+              _selectedLlmModel!,
+              sourceLang: _selectedSourceLang,
+              targetLang: _selectedTargetLang,
+            );
+          } else {
+            await llmBackend!.setLanguages(_selectedSourceLang, _selectedTargetLang);
+          }
+        } else {
+          if (_nmtBackend == null || _nmtBackend is! NativeNmtService) {
+            _nmtBackend?.release();
+            _nmtBackend = NativeNmtService();
+            await _nmtBackend!.loadModel(_selectedNmtModel!);
+          }
+        }
+      }
+
+      setState(() {
+        _isProcessing = false;
+        _isConfigExpanded = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Models loaded successfully! You can now pick a media file.'), backgroundColor: Colors.green),
+        );
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load models: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _releaseModels() async {
+    setState(() {
+      _isProcessing = true;
+    });
+    await _deinitializeAll();
+    setState(() {
+      _isProcessing = false;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Models released.')),
+      );
+    }
   }
 
   void _applyLlmLanguages() {
@@ -434,40 +511,8 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     _processingStopwatch = Stopwatch()..start();
 
     try {
-      // 1. Initialize ASR engine
-      if (!_asr.isInitialized) {
-        await _asr.initialize(_selectedAsrModel!);
-      } else {
-        _asr.reset();
-      }
-
-      // 2. Initialize Translation engine if needed
-      if (_enableTranslation) {
-        if (_mtMode == 'llm') {
-          final llmBackend = _nmtBackend is LlamaNmtService
-              ? _nmtBackend as LlamaNmtService
-              : null;
-          final needReload = llmBackend == null ||
-              llmBackend.currentModel?.path != _selectedLlmModel!.path;
-          if (needReload) {
-            _nmtBackend?.release();
-            _nmtBackend = LlamaNmtService();
-            await _nmtBackend!.loadModel(
-              _selectedLlmModel!,
-              sourceLang: _selectedSourceLang,
-              targetLang: _selectedTargetLang,
-            );
-          } else {
-            await llmBackend!.setLanguages(_selectedSourceLang, _selectedTargetLang);
-          }
-        } else {
-          if (_nmtBackend == null || _nmtBackend is! NativeNmtService) {
-            _nmtBackend?.release();
-            _nmtBackend = NativeNmtService();
-            await _nmtBackend!.loadModel(_selectedNmtModel!);
-          }
-        }
-      }
+      // Models are already loaded since we enforced flow: load models -> pick file.
+      _asr.reset();
 
       final samples = _audioSamples!;
       final totalSamples = samples.length;
@@ -550,6 +595,30 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
           _translationTokensPerSec = _totalTranslationTokens / _translationTimeSec!;
         }
       });
+
+      // Save to history on successful completion
+      if (_subtitles.isNotEmpty && _selectedFilePath != null) {
+        try {
+          final id = AudioFileHistoryStore.newId();
+          final copiedAudioPath = await AudioFileHistoryStore.saveAudioFile(id, _selectedFilePath!);
+          
+          final session = AudioFileHistorySession(
+            id: id,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+            fileName: _selectedFileName ?? 'Unnamed Audio',
+            sourceLang: _selectedSourceLang,
+            targetLang: _selectedTargetLang,
+            duration: _fileDuration ?? 0.0,
+            audioPath: copiedAudioPath,
+            subtitles: List.from(_subtitles),
+          );
+          
+          await AudioFileHistoryStore.save(session);
+        } catch (e) {
+          debugPrint('Failed to save audio file transcription history: $e');
+        }
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -775,9 +844,18 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
     );
   }
 
+  void _openHistory() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const AudioFileHistorySheet(),
+    );
+  }
+
   Widget _buildTitleCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
@@ -793,24 +871,34 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
           ),
         ],
       ),
-      child: const Column(
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.subtitles_rounded, size: 28, color: Colors.white),
-              SizedBox(width: 8),
-              Text(
-                'Audio Transcription & Subtitles',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: const [
+                    Icon(Icons.subtitles_rounded, size: 24, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Audio File Transcription',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Offline transcription & translation with timestamps',
+                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                ),
+              ],
+            ),
           ),
-          SizedBox(height: 6),
-          Text(
-            'Offline audio file transcription with auto translation & timestamps',
-            style: TextStyle(fontSize: 12, color: Colors.white70),
-            textAlign: TextAlign.center,
+          IconButton(
+            onPressed: _openHistory,
+            icon: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+            tooltip: 'Transcription History',
           ),
         ],
       ),
@@ -1001,6 +1089,27 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                       ),
                     ],
                   ],
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _asr.isInitialized ? Colors.green.shade600 : const Color(0xFF1E3C72),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          ),
+                          onPressed: _isProcessing ? null : (_asr.isInitialized ? _releaseModels : _initializeModels),
+                          icon: Icon(_asr.isInitialized ? Icons.check_circle_rounded : Icons.cloud_download_rounded),
+                          label: Text(
+                            _asr.isInitialized ? 'Models Loaded (Tap to Release)' : 'Load & Initialize Models',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -1056,16 +1165,36 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
             ),
             const SizedBox(height: 12),
             if (_selectedFileName == null)
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  side: const BorderSide(color: Colors.indigo, width: 1.5),
-                ),
-                onPressed: _pickAudioFile,
-                icon: const Icon(Icons.audio_file_rounded),
-                label: const Text('Pick Media File (WAV, MP3, MP4, MOV, etc.)'),
-              )
+              _asr.isInitialized
+                  ? OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        side: const BorderSide(color: Colors.indigo, width: 1.5),
+                      ),
+                      onPressed: _pickAudioFile,
+                      icon: const Icon(Icons.audio_file_rounded),
+                      label: const Text('Pick Media File (WAV, MP3, MP4, MOV, etc.)'),
+                    )
+                  : Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        border: Border.all(color: Colors.orange.shade200),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Column(
+                        children: const [
+                          Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                          SizedBox(height: 8),
+                          Text(
+                            'Please load and initialize models above before picking a media file.',
+                            style: TextStyle(color: Color(0xFFC05621), fontSize: 13, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    )
             else
               Container(
                 padding: const EdgeInsets.all(12),
@@ -1333,14 +1462,19 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                   'Subtitles (${_subtitles.length})',
                   style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                 ),
-                if (_subtitles.isNotEmpty)
+                if (_subtitles.isNotEmpty && !_isProcessing)
                   PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_vert_rounded),
+                    icon: const Icon(Icons.share_rounded, color: Colors.indigo),
+                    tooltip: 'Share / Export',
                     onSelected: (value) {
                       if (value == 'copy_srt') {
                         _copyToClipboard(_generateSrt());
                       } else if (value == 'copy_text') {
                         _copyToClipboard(_generatePlainText());
+                      } else if (value == 'export_srt') {
+                        _exportSrtFile();
+                      } else if (value == 'export_zip') {
+                        _exportZipArchive();
                       }
                     },
                     itemBuilder: (context) => [
@@ -1361,6 +1495,27 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                             Icon(Icons.text_format_rounded, size: 18),
                             SizedBox(width: 8),
                             Text('Copy Plain Text'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuDivider(),
+                      const PopupMenuItem(
+                        value: 'export_srt',
+                        child: Row(
+                          children: [
+                            Icon(Icons.download_rounded, size: 18),
+                            SizedBox(width: 8),
+                            Text('Export SRT File'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'export_zip',
+                        child: Row(
+                          children: [
+                            Icon(Icons.archive_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('Export ZIP Archive (MD + Audio)'),
                           ],
                         ),
                       ),
@@ -1586,6 +1741,104 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
         ),
       ),
     );
+  }
+
+  Future<void> _exportSrtFile() async {
+    if (_subtitles.isEmpty) return;
+    try {
+      final baseAudioName = _selectedFileName != null 
+          ? p.basenameWithoutExtension(_selectedFileName!) 
+          : 'audio';
+      
+      final srcLang = _selectedSourceLang.replaceAll(' ', '');
+      final tgtLang = _selectedTargetLang.replaceAll(' ', '');
+      final now = DateTime.now();
+      final timeStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
+          '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+          
+      final srtDefaultName = '${baseAudioName}_${srcLang}_${tgtLang}_$timeStr.srt';
+          
+      final savePath = await FilePicker.saveFile(
+        dialogTitle: 'Export SRT File',
+        fileName: srtDefaultName,
+        type: FileType.custom,
+        allowedExtensions: ['srt'],
+      );
+      
+      if (savePath != null) {
+        await SubtitleExportService.exportToSrtFile(_subtitles, savePath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('SRT exported successfully to: ${p.basename(savePath)}'), backgroundColor: Colors.green),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export SRT: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _exportZipArchive() async {
+    if (_subtitles.isEmpty || _audioSamples == null) return;
+    try {
+      final baseAudioName = _selectedFileName != null 
+          ? p.basenameWithoutExtension(_selectedFileName!) 
+          : 'audio';
+      
+      final srcLang = _selectedSourceLang.replaceAll(' ', '');
+      final tgtLang = _selectedTargetLang.replaceAll(' ', '');
+      
+      final now = DateTime.now();
+      final timeStr = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
+          '${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+      
+      final zipDefaultName = '${baseAudioName}_${srcLang}_${tgtLang}_$timeStr.zip';
+      
+      final savePath = await FilePicker.saveFile(
+        dialogTitle: 'Export ZIP Archive',
+        fileName: zipDefaultName,
+        type: FileType.custom,
+        allowedExtensions: ['zip'],
+      );
+      
+      if (savePath != null) {
+        setState(() {
+          _isProcessing = true;
+        });
+        
+        await SubtitleExportService.exportToZip(
+          audioFileName: _selectedFileName ?? 'audio.wav',
+          sourceLang: _selectedSourceLang,
+          targetLang: _selectedTargetLang,
+          subtitles: _subtitles,
+          audioSamples: _audioSamples!,
+          targetZipPath: savePath,
+        );
+        
+        setState(() {
+          _isProcessing = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('ZIP exported successfully to: ${p.basename(savePath)}'), backgroundColor: Colors.green),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() {
+        _isProcessing = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to export ZIP: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
   }
 
   String _formatDuration(Duration duration) {
