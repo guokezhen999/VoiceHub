@@ -394,6 +394,7 @@ void StreamingAstPipeline::BeginSegment() {
 
   encoder_->Reset();
   fbank_->Reset();
+  last_real_samples_.clear();
 }
 
 void StreamingAstPipeline::EndSegment(FinalizedSegment* out) {
@@ -435,6 +436,13 @@ void StreamingAstPipeline::EndSegment(FinalizedSegment* out) {
 void StreamingAstPipeline::ProcessSpeechWindow(const float* samples, int32_t n,
                                                bool llm_decode) {
   if (!in_segment_) BeginSegment();
+  if (samples && n > 0) {
+    last_real_samples_.insert(last_real_samples_.end(), samples, samples + n);
+    if (last_real_samples_.size() > 16000) {
+      last_real_samples_.erase(last_real_samples_.begin(),
+                               last_real_samples_.begin() + (last_real_samples_.size() - 16000));
+    }
+  }
   fbank_->AcceptWaveform(samples, n);
   DrainFbankAndEncoder();
   if (llm_decode) MaybeDecodeChunks(false);
@@ -467,8 +475,13 @@ void StreamingAstPipeline::PadAudioTailForEncoder() {
 
     const int32_t silence_samples =
         need_frames * shift_samples + frame_len_samples;
-    std::vector<float> silence(static_cast<size_t>(silence_samples), 0.0f);
-    fbank_->AcceptWaveform(silence.data(), silence_samples);
+    std::vector<float> pad_samples(static_cast<size_t>(silence_samples), 0.0f);
+    if (!last_real_samples_.empty()) {
+      for (size_t i = 0; i < pad_samples.size(); ++i) {
+        pad_samples[i] = last_real_samples_[last_real_samples_.size() - 1 - (i % last_real_samples_.size())];
+      }
+    }
+    fbank_->AcceptWaveform(pad_samples.data(), silence_samples);
     DebugLog("[simulst] PadAudioTail step=%d need_frames=%d silence_samples=%d "
              "ready_if_finished=%d\n",
              step, need_frames, silence_samples,
@@ -778,6 +791,7 @@ void StreamingAstPipeline::Reset() {
   llm_segment_count_ = 0;
   finalized_.clear();
   speaking_ = false;
+  last_real_samples_.clear();
 }
 
 std::string StreamingAstPipeline::PollJson() {

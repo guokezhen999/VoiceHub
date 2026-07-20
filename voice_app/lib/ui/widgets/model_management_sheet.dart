@@ -53,182 +53,6 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
     });
   }
 
-  Future<void> _showLanguageFilterDialog(BuildContext context) async {
-    final TextEditingController newLangController = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: const Row(
-                children: [
-                  Icon(Icons.language_rounded, color: Colors.blue),
-                  SizedBox(width: 8),
-                  Text('Display Languages'),
-                ],
-              ),
-              content: SizedBox(
-                width: double.maxFinite,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Choose which languages to show in the repository:',
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                    const SizedBox(height: 12),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4.0),
-                          child: GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 8,
-                              mainAxisSpacing: 8,
-                              childAspectRatio: 3.2,
-                            ),
-                            itemCount: LanguageManager.languages.length,
-                            itemBuilder: (context, index) {
-                              final lang = LanguageManager.languages[index];
-                              final isEnabled = LanguageManager.enabledLanguages.contains(lang);
-                              final isDefault = LanguageManager.defaultLanguages.contains(lang);
-
-                              return InkWell(
-                                onTap: () async {
-                                  await LanguageManager.toggleLanguage(lang, !isEnabled);
-                                  setDialogState(() {});
-                                },
-                                borderRadius: BorderRadius.circular(8),
-                                child: AnimatedContainer(
-                                  duration: const Duration(milliseconds: 150),
-                                  decoration: BoxDecoration(
-                                    color: isEnabled
-                                        ? const Color(0xFF1E3C72).withOpacity(0.08)
-                                        : Colors.grey.shade50,
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isEnabled
-                                          ? const Color(0xFF1E3C72)
-                                          : Colors.grey.shade300,
-                                      width: isEnabled ? 1.5 : 1.0,
-                                    ),
-                                  ),
-                                  child: Stack(
-                                    children: [
-                                      Center(
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12.0),
-                                          child: Text(
-                                            lang,
-                                            style: TextStyle(
-                                              fontSize: 13,
-                                              fontWeight: FontWeight.bold,
-                                              color: isEnabled
-                                                  ? const Color(0xFF1E3C72)
-                                                  : Colors.grey.shade700,
-                                            ),
-                                            textAlign: TextAlign.center,
-                                          ),
-                                        ),
-                                      ),
-                                      if (!isDefault)
-                                        Positioned(
-                                          right: 2,
-                                          top: 2,
-                                          child: GestureDetector(
-                                            onTap: () async {
-                                              await LanguageManager.removeLanguage(lang);
-                                              setDialogState(() {});
-                                            },
-                                            child: Container(
-                                              padding: const EdgeInsets.all(2),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                shape: BoxShape.circle,
-                                                boxShadow: [
-                                                  BoxShadow(
-                                                    color: Colors.black.withOpacity(0.1),
-                                                    blurRadius: 2,
-                                                  )
-                                                ],
-                                              ),
-                                              child: const Icon(
-                                                Icons.close_rounded,
-                                                color: Colors.redAccent,
-                                                size: 12,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                    const Divider(),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextField(
-                            controller: newLangController,
-                            decoration: const InputDecoration(
-                              hintText: 'Add custom language...',
-                              isDense: true,
-                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                              border: OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          ),
-                          onPressed: () async {
-                            final text = newLangController.text.trim();
-                            if (text.isNotEmpty) {
-                              await LanguageManager.addLanguage(text);
-                              newLangController.clear();
-                              setDialogState(() {});
-                            }
-                          },
-                          child: const Text('Add'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
-                  child: const Text('Done', style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    setState(() {});
-  }
-
   Future<void> _pickDirectory() async {
     try {
       final dir = await FilePicker.getDirectoryPath();
@@ -551,39 +375,23 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
             // Segmented selector for ASR vs TTS vs NMT
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'asr', label: Text('ASR'), icon: Icon(Icons.mic)),
-                        ButtonSegment(value: 'tts', label: Text('TTS'), icon: Icon(Icons.speaker_notes)),
-                        ButtonSegment(value: 'nmt', label: Text('NMT'), icon: Icon(Icons.translate)),
-                        ButtonSegment(value: 'llm', label: Text('LLM'), icon: Icon(Icons.psychology)),
-                        ButtonSegment(value: 'simulst', label: Text('AST'), icon: Icon(Icons.hearing)),
-                      ],
-                      selected: {_currentType},
-                      onSelectionChanged: (value) {
-                        setState(() {
-                          _currentType = value.first;
-                          _selectedPath = null;
-                          _modelNameController.clear();
-                        });
-                        _loadModels();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.blue.withOpacity(0.1),
-                      foregroundColor: Colors.blue,
-                    ),
-                    icon: const Icon(Icons.filter_list),
-                    tooltip: 'Filter Languages',
-                    onPressed: () => _showLanguageFilterDialog(context),
-                  ),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'asr', label: Text('ASR'), icon: Icon(Icons.mic)),
+                  ButtonSegment(value: 'tts', label: Text('TTS'), icon: Icon(Icons.speaker_notes)),
+                  ButtonSegment(value: 'nmt', label: Text('NMT'), icon: Icon(Icons.translate)),
+                  ButtonSegment(value: 'llm', label: Text('LLM'), icon: Icon(Icons.psychology)),
+                  ButtonSegment(value: 'simulst', label: Text('AST'), icon: Icon(Icons.hearing)),
                 ],
+                selected: {_currentType},
+                onSelectionChanged: (value) {
+                  setState(() {
+                    _currentType = value.first;
+                    _selectedPath = null;
+                    _modelNameController.clear();
+                  });
+                  _loadModels();
+                },
               ),
             ),
 
@@ -793,7 +601,7 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                           padding: const EdgeInsets.symmetric(vertical: 40),
                           alignment: Alignment.center,
                           child: const Text(
-                            'No models match your display language settings.\nUse the filter button above to change display languages.',
+                            'No models match your display language settings.\nChange display languages in Settings → Language Settings.',
                             textAlign: TextAlign.center,
                             style: TextStyle(color: Colors.grey),
                           ),

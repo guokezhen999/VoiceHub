@@ -221,6 +221,8 @@ void LlamaGgufDecoder::Reset() {
   n_past_ = 0;
   prompt_kv_len_ = -1;
   segment_count_ = 0;
+  current_segment_chunk_index_ = 0;
+  total_chunks_prefilled_ = 0;
 }
 
 std::vector<float> LlamaGgufDecoder::EmbedText(const std::string& text) const {
@@ -480,6 +482,9 @@ std::string LlamaGgufDecoder::FeedChunk(
     }
     prefix.insert(prefix.end(), meta_.emb_a.begin(), meta_.emb_a.end());
     a_token_frames = 1;
+  } else if (is_new_segment) {
+    prefix.insert(prefix.end(), meta_.emb_a.begin(), meta_.emb_a.end());
+    a_token_frames = 1;
   }
 
   const int32_t audio_frames = (audio_embeds && num_frames > 0) ? num_frames : 0;
@@ -494,27 +499,38 @@ std::string LlamaGgufDecoder::FeedChunk(
   const int32_t prefill_frames =
       static_cast<int32_t>(prefix.size() / static_cast<size_t>(n_embd_));
 
-  std::fprintf(stderr,
-               "[simulst] decode_input: prompt=\"%s\" "
-               "prefill=%d(prompt=%d+<A>=%d+audio=%d) new_seg=%d seg_end=%d "
-               "n_past=%d",
-               prompt.c_str(), prefill_frames, prompt_emb_frames, a_token_frames,
-               audio_frames, is_new_segment ? 1 : 0, is_segment_end ? 1 : 0,
-               n_past_at_start);
+  if (is_new_segment) {
+    current_segment_chunk_index_ = 0;
+  }
+  int32_t current_chunk = current_segment_chunk_index_;
+  current_segment_chunk_index_++;
+  total_chunks_prefilled_++;
 
   if (!prefix.empty()) {
     PrefillEmbeddings(prefix.data(), prefill_frames, false);
   }
 
-  std::fprintf(stderr, "->%d", n_past_);
-
-  if (!is_segment_end) {
-    std::fprintf(stderr, " (prefill only, no </A>)\n");
-    return "";
+  if (is_segment_end) {
+    PrefillEmbeddings(meta_.emb_a_end.data(), 1, true);
   }
 
-  PrefillEmbeddings(meta_.emb_a_end.data(), 1, true);
-  std::fprintf(stderr, " +</A>->%d max_new_tokens=%d\n", n_past_, max_new_tokens);
+  std::string current_str;
+  if (a_token_frames > 0) {
+    current_str += "<A>";
+  }
+  current_str += "[" + std::to_string(audio_frames) + " audio embeds]";
+  if (is_segment_end) {
+    current_str += "</A>";
+  }
+
+  std::fprintf(stderr,
+               "[simulst] decode_input: prompt=\"%s\" segment=%d(chunk=%d, total=%d) current=%s n_past=%d->%d\n",
+               prompt.c_str(), segment_count_, current_chunk, total_chunks_prefilled_,
+               current_str.c_str(), n_past_at_start, n_past_);
+
+  if (!is_segment_end) {
+    return "";
+  }
 
   const bool apply_penalty = (!eos_penalty_only_last_chunk) || is_segment_end;
   std::string text = AutoregressAfterAEnd(

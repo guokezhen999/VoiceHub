@@ -124,6 +124,8 @@ class LlamaGgufDecoder {
   int32_t n_past_ = 0;
   int32_t prompt_kv_len_ = -1;
   int32_t segment_count_ = 0;
+  int32_t current_segment_chunk_index_ = 0;
+  int32_t total_chunks_prefilled_ = 0;
 };
 
 }  // namespace simulst

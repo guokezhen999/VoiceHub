@@ -102,6 +102,7 @@ class StreamingAstPipeline {
   SpeechLlmMeta llm_meta_;
   std::string gguf_path_;
   std::string last_error_;
+  std::vector<float> last_real_samples_;
 };
 
 }  // namespace simulst

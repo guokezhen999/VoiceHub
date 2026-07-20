@@ -15,6 +15,8 @@ import 'package:voice_app/services/llama_chat_service.dart';
 import 'package:voice_app/ui/screens/cascade_translation_screen.dart';
 import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 import 'package:voice_app/ui/screens/simultaneous_translation_screen.dart';
+import 'package:voice_app/services/vad_settings.dart';
+import 'package:voice_app/services/advanced_settings.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -533,40 +535,614 @@ class _MyHomePageState extends State<MyHomePage> {
 void showSettingsBottomSheet(BuildContext context) {
   showModalBottomSheet(
     context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
     builder: (context) => ValueListenableBuilder<bool>(
       valueListenable: MyHomePage.showPerfMetricsNotifier,
       builder: (context, showPerfMetrics, _) {
-        return Material(
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Settings',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    title: const Text('Show performance metrics'),
-                    subtitle: const Text(
-                      'Display encoder time and decoder tokens/second for MT translation',
-                      style: TextStyle(fontSize: 12),
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'General Settings (通用设置)',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
                     ),
-                    value: showPerfMetrics,
-                    onChanged: (val) {
-                      MyHomePage.showPerfMetricsNotifier.value = val;
-                    },
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Show performance metrics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
+                  subtitle: const Text(
+                    'Display encoder time and decoder tokens/second for MT translation',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
                   ),
-                ],
-              ),
+                  value: showPerfMetrics,
+                  onChanged: (val) {
+                    MyHomePage.showPerfMetricsNotifier.value = val;
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Language Settings (语言设置)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  subtitle: const Text(
+                    'Choose which languages to show in the model repository',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showLanguageSettingsBottomSheet(context);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'VAD Settings (VAD 参数设置)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  subtitle: const Text(
+                    'Configure silence and speech durations for voice engines',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showVadSettingsBottomSheet(context);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Advanced Settings (高级设置)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  subtitle: const Text(
+                    'Fine-tune decoding parameters for simultaneous translation',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showAdvancedSettingsBottomSheet(context);
+                  },
+                ),
+              ],
             ),
           ),
         );
       },
     ),
+  );
+}
+
+void showLanguageSettingsBottomSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _LanguageSettingsSheet(
+      onBack: () {
+        Navigator.pop(sheetContext);
+        showSettingsBottomSheet(context);
+      },
+    ),
+  );
+}
+
+class _LanguageSettingsSheet extends StatefulWidget {
+  final VoidCallback onBack;
+
+  const _LanguageSettingsSheet({required this.onBack});
+
+  @override
+  State<_LanguageSettingsSheet> createState() => _LanguageSettingsSheetState();
+}
+
+class _LanguageSettingsSheetState extends State<_LanguageSettingsSheet> {
+  late final TextEditingController _newLangController;
+
+  @override
+  void initState() {
+    super.initState();
+    _newLangController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _newLangController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                      onPressed: widget.onBack,
+                    ),
+                    const Text(
+                      'Language Settings (语言设置)',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 8),
+            const Text(
+              'Choose which languages to show in the repository:',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+                childAspectRatio: 2.8,
+              ),
+              itemCount: LanguageManager.languages.length,
+              itemBuilder: (context, index) {
+                final lang = LanguageManager.languages[index];
+                final isEnabled = LanguageManager.enabledLanguages.contains(lang);
+                final isDefault = LanguageManager.defaultLanguages.contains(lang);
+
+                return InkWell(
+                  onTap: () async {
+                    await LanguageManager.toggleLanguage(lang, !isEnabled);
+                    if (mounted) setState(() {});
+                  },
+                  borderRadius: BorderRadius.circular(6),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      color: isEnabled
+                          ? const Color(0xFF1E3C72).withOpacity(0.08)
+                          : Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: isEnabled
+                            ? const Color(0xFF1E3C72)
+                            : Colors.grey.shade300,
+                        width: isEnabled ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Stack(
+                      children: [
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 6.0),
+                            child: Text(
+                              lang,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isEnabled
+                                    ? const Color(0xFF1E3C72)
+                                    : Colors.grey.shade700,
+                              ),
+                              textAlign: TextAlign.center,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                        if (!isDefault)
+                          Positioned(
+                            right: 1,
+                            top: 1,
+                            child: GestureDetector(
+                              onTap: () async {
+                                await LanguageManager.removeLanguage(lang);
+                                if (mounted) setState(() {});
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(1),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 2,
+                                    )
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.close_rounded,
+                                  color: Colors.redAccent,
+                                  size: 10,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+            const Divider(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _newLangController,
+                    decoration: const InputDecoration(
+                      hintText: 'Add custom language...',
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E3C72),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  ),
+                  onPressed: () async {
+                    final text = _newLangController.text.trim();
+                    if (text.isNotEmpty) {
+                      await LanguageManager.addLanguage(text);
+                      _newLangController.clear();
+                      if (mounted) setState(() {});
+                    }
+                  },
+                  child: const Text('Add'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void showAdvancedSettingsBottomSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setSheetState) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            showSettingsBottomSheet(context);
+                          },
+                        ),
+                        const Text(
+                          'Advanced Settings (高级设置)',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Repetition Penalty (重复惩罚)',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+                    ),
+                    Text(
+                      AdvancedSettings.repetitionPenalty.toStringAsFixed(2),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Higher values discourage repeated tokens in simultaneous translation. 1.0 disables the penalty.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                Slider(
+                  value: AdvancedSettings.repetitionPenalty,
+                  min: 1.0,
+                  max: 2.0,
+                  divisions: 20,
+                  label: AdvancedSettings.repetitionPenalty.toStringAsFixed(2),
+                  activeColor: const Color(0xFF1E3C72),
+                  onChanged: (val) {
+                    setSheetState(() {
+                      AdvancedSettings.repetitionPenalty = val;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+void showVadSettingsBottomSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setSheetState) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(24),
+              topRight: Radius.circular(24),
+            ),
+          ),
+          padding: EdgeInsets.only(
+            left: 20,
+            right: 20,
+            top: 20,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                          onPressed: () {
+                            Navigator.pop(context);
+                            showSettingsBottomSheet(context);
+                          },
+                        ),
+                        const Text(
+                          'VAD Settings (VAD 设置)',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                        ),
+                      ],
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const Divider(),
+                const SizedBox(height: 8),
+                _buildVadConfigSection(
+                  title: 'General Mode VAD (一般模式 VAD 设置)',
+                  config: VadSettings.generalMode,
+                  setState: setSheetState,
+                ),
+                const Divider(height: 24),
+                _buildVadConfigSection(
+                  title: 'Simultaneous Interpretation VAD (同传模式 VAD 设置)',
+                  config: VadSettings.simulstMode,
+                  setState: setSheetState,
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+Widget _buildVadConfigSection({
+  required String title,
+  required VadConfig config,
+  required StateSetter setState,
+}) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.bold,
+          color: Color(0xFF1E3C72),
+        ),
+      ),
+      const SizedBox(height: 12),
+      // VAD Threshold
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Detection Threshold (检测阈值)',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+          ),
+          Text(
+            config.threshold.toStringAsFixed(2),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 2),
+      const Text(
+        'Lower is more sensitive; higher is more strict (filters noise).',
+        style: TextStyle(fontSize: 11, color: Colors.grey),
+      ),
+      Slider(
+        value: config.threshold,
+        min: 0.1,
+        max: 0.9,
+        divisions: 16,
+        label: config.threshold.toStringAsFixed(2),
+        activeColor: const Color(0xFF1E3C72),
+        onChanged: (val) {
+          setState(() {
+            config.threshold = val;
+          });
+        },
+      ),
+      const SizedBox(height: 8),
+      // Min Silence Duration
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Min Silence Duration (静音判定时长)',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+          ),
+          Text(
+            '${config.minSilenceDuration.toStringAsFixed(2)}s',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 2),
+      const Text(
+        'Silence duration required to finalize speech segments.',
+        style: TextStyle(fontSize: 11, color: Colors.grey),
+      ),
+      Slider(
+        value: config.minSilenceDuration,
+        min: 0.1,
+        max: 2.0,
+        divisions: 38,
+        label: '${config.minSilenceDuration.toStringAsFixed(2)}s',
+        activeColor: const Color(0xFF1E3C72),
+        onChanged: (val) {
+          setState(() {
+            config.minSilenceDuration = val;
+          });
+        },
+      ),
+      const SizedBox(height: 8),
+      // Min Speech Duration
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          const Text(
+            'Min Speech Duration (最少发言时长)',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+          ),
+          Text(
+            '${config.minSpeechDuration.toStringAsFixed(2)}s',
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF1E3C72)),
+          ),
+        ],
+      ),
+      const SizedBox(height: 2),
+      const Text(
+        'Minimum duration of speech to be considered valid.',
+        style: TextStyle(fontSize: 11, color: Colors.grey),
+      ),
+      Slider(
+        value: config.minSpeechDuration,
+        min: 0.1,
+        max: 2.0,
+        divisions: 38,
+        label: '${config.minSpeechDuration.toStringAsFixed(2)}s',
+        activeColor: const Color(0xFF1E3C72),
+        onChanged: (val) {
+          setState(() {
+            config.minSpeechDuration = val;
+          });
+        },
+      ),
+    ],
   );
 }
 

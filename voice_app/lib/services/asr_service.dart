@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/utils/utils.dart';
 import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
+import 'package:voice_app/services/vad_settings.dart';
 
 /// Shared ASR helper methods and engine lifecycle management.
 ///
@@ -150,9 +151,9 @@ class AsrService {
   static Map<String, dynamic> buildAudioPipelineConfig(String sileroModelPath) => {
         'vad': {
           'model': sileroModelPath,
-          'threshold': 0.5,
-          'min_silence_duration': 0.3,
-          'min_speech_duration': 0.3,
+          'threshold': VadSettings.generalMode.threshold,
+          'min_silence_duration': VadSettings.generalMode.minSilenceDuration,
+          'min_speech_duration': VadSettings.generalMode.minSpeechDuration,
           'window_size': 512,
           'max_speech_duration': 20.0,
           'sample_rate': 16000,

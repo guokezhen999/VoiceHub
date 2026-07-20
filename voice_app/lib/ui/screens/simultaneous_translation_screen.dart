@@ -7,6 +7,8 @@ import 'package:voice_app/ffi/simulst_ffi_bridge.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/services/simulst_service.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
+import 'package:voice_app/services/vad_settings.dart';
+import 'package:voice_app/services/advanced_settings.dart';
 
 class _SimulstSegmentRow {
   String transcript;
@@ -47,6 +49,7 @@ class _SimultaneousTranslationScreenState
   String _translateLang = 'English';
   bool _enableTranscribe = true;
   bool _enableTranslate = true;
+  int _numChunks = 1;
 
   final List<_SimulstSegmentRow> _segments = [];
   String _partialTranscript = '';
@@ -118,6 +121,11 @@ class _SimultaneousTranslationScreenState
         enableTranslate: _enableTranslate,
         transcribeLang: _transcribeLang,
         translateLang: _translateLang,
+        numChunks: _numChunks,
+        repetitionPenalty: AdvancedSettings.repetitionPenalty,
+        vadThreshold: VadSettings.simulstMode.threshold,
+        vadMinSilenceDuration: VadSettings.simulstMode.minSilenceDuration,
+        vadMinSpeechDuration: VadSettings.simulstMode.minSpeechDuration,
       );
       setState(() {
         _isConfigExpanded = false;
@@ -143,10 +151,10 @@ class _SimultaneousTranslationScreenState
     }
   }
 
-  void _applyTaskSettings() {
+  Future<void> _applyTaskSettings() async {
     if (!_simulst.isInitialized) return;
     try {
-      final ok = _simulst.updateTasks(
+      final ok = await _simulst.updateTasks(
         enableTranscribe: _enableTranscribe,
         enableTranslate: _enableTranslate,
         transcribeLang: _transcribeLang,
@@ -162,9 +170,11 @@ class _SimultaneousTranslationScreenState
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to update tasks: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to update tasks: $e')),
+        );
+      }
     }
   }
 
@@ -203,12 +213,19 @@ class _SimultaneousTranslationScreenState
   }
 
   Future<void> _stopRecording() async {
-    await _audioStreamSub?.cancel();
-    _audioStreamSub = null;
+    final sub = _audioStreamSub;
+    if (sub == null) return;
+    _audioStreamSub = null; // Prevent double trigger immediately
+
+    // Continue recording for a short delay to capture the final spoken speech tail (real audio)
+    await Future.delayed(const Duration(milliseconds: 600));
+
+    await sub.cancel();
     await _audioRecorder.stop();
 
     if (_simulst.handle != null) {
-      _onPoll(_simulst.flushAndPoll());
+      final pollResult = await _simulst.flushAndPoll();
+      _onPoll(pollResult);
     }
 
     setState(() {
@@ -470,6 +487,29 @@ class _SimultaneousTranslationScreenState
                 onChanged: (val) {
                   setState(() {
                     _selectedModel = val;
+                    if (_simulst.isInitialized) _deinitializeEngine();
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Streaming Latency (num_chunks)',
+                style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              DropdownButtonFormField<int>(
+                value: _numChunks,
+                isExpanded: true,
+                decoration: _inputDecoration(),
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('1 (Low Latency / Fast)')),
+                  DropdownMenuItem(value: 2, child: Text('2 (Medium Latency)')),
+                  DropdownMenuItem(value: 4, child: Text('4 (High Latency / Better Quality)')),
+                ],
+                onChanged: (val) {
+                  if (val == null) return;
+                  setState(() {
+                    _numChunks = val;
                     if (_simulst.isInitialized) _deinitializeEngine();
                   });
                 },
