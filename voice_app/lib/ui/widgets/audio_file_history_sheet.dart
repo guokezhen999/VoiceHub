@@ -45,6 +45,7 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
 
   @override
   void dispose() {
+    _listAudioPlayer.stop();
     _listAudioPlayer.dispose();
     super.dispose();
   }
@@ -350,6 +351,7 @@ class _AudioFileHistoryPreviewSheetState extends State<_AudioFileHistoryPreviewS
 
   @override
   void dispose() {
+    _audioPlayer.stop();
     _audioPlayer.dispose();
     _scrollController.dispose();
     super.dispose();

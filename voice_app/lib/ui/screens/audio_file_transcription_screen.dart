@@ -122,6 +122,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
   @override
   void dispose() {
     ModelManager.changeNotifier.removeListener(_loadModels);
+    _audioPlayer.stop();
     _deinitializeAll();
     _audioPlayer.dispose();
     _subtitlesScrollController.dispose();
@@ -845,6 +846,7 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
   }
 
   void _openHistory() {
+    _audioPlayer.stop();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
