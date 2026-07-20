@@ -369,12 +369,19 @@ void StreamingAstPipeline::MaybeEvictLlmKvBySegmentLimit() {
   ++llm_segment_count_;
   if (llm_segment_count_ < resolved_max_llm_segments_) return;
 
-  DebugLog("[simulst] max_llm_segments=%d reached, clearing decoder KV\n",
-           resolved_max_llm_segments_);
+  const int32_t keep_count = std::min(config_.keep_recent_segments, resolved_max_llm_segments_ - 1);
+  DebugLog("[simulst] max_llm_segments=%d reached, evicting decoder KV keeping recent %d segments\n",
+           resolved_max_llm_segments_, keep_count);
   for (auto& task : task_decoders_) {
-    if (task.decoder) task.decoder->Reset();
+    if (task.decoder) {
+      if (keep_count > 0) {
+        task.decoder->EvictCacheKeepRecent(keep_count);
+      } else {
+        task.decoder->Reset();
+      }
+    }
   }
-  llm_segment_count_ = 0;
+  llm_segment_count_ = std::max(0, keep_count);
 }
 
 void StreamingAstPipeline::BeginSegment() {

@@ -24,6 +24,11 @@ struct SpeechLlmMeta {
   std::vector<float> emb_a_end;
 };
 
+struct SavedSegmentInputs {
+  std::vector<float> audio_embeds;
+  std::vector<int32_t> generated_ids;
+};
+
 // Shared GGUF weights + token embedding table. One instance per export_dir.
 class LlamaGgufModel {
  public:
@@ -71,6 +76,7 @@ class LlamaGgufDecoder {
                            int32_t n_threads, std::string* error);
 
   void Reset();
+  void EvictCacheKeepRecent(int32_t keep_count);
 
   int32_t NPast() const { return n_past_; }
 
@@ -126,6 +132,12 @@ class LlamaGgufDecoder {
   int32_t segment_count_ = 0;
   int32_t current_segment_chunk_index_ = 0;
   int32_t total_chunks_prefilled_ = 0;
+  int32_t sys_prompt_len_ = 0;
+  std::vector<int32_t> segment_start_positions_;
+  std::string system_prompt_;
+  std::vector<float> current_segment_audio_;
+  std::vector<int32_t> last_generated_ids_;
+  std::vector<SavedSegmentInputs> segment_history_;
 };
 
 }  // namespace simulst

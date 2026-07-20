@@ -61,6 +61,7 @@ void ApplyJsonToConfig(const nlohmann::json& j, simulst::SimulstConfig* cfg,
   cfg->max_llm_segments = j.value("max_llm_segments", cfg->max_llm_segments);
   cfg->num_chunks = j.value("num_chunks", cfg->num_chunks);
   cfg->max_llm_kv_segments_base = j.value("max_llm_kv_segments_base", cfg->max_llm_kv_segments_base);
+  cfg->keep_recent_segments = j.value("keep_recent_segments", cfg->keep_recent_segments);
   cfg->embed_chunk_size = j.value("embed_chunk_size", cfg->embed_chunk_size);
   cfg->encoder_provider = j.value("encoder_provider", cfg->encoder_provider);
   cfg->encoder_num_threads = j.value("encoder_num_threads", cfg->encoder_num_threads);

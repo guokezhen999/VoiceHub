@@ -75,7 +75,10 @@ struct SimulstConfig {
 
   // Base segment budget at num_chunks=1. Effective max_llm_segments =
   // max_llm_kv_segments_base / num_chunks (unless max_llm_segments > 0).
-  int32_t max_llm_kv_segments_base = 64;
+  int32_t max_llm_kv_segments_base = 56;
+
+  // Number of recent VAD segments to keep when LLM KV is evicted due to max segment limit.
+  int32_t keep_recent_segments = 12;
 
   // Explicit LLM embed-frame chunk size. Leave 0 to derive from num_chunks.
   int32_t embed_chunk_size = 0;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:record/record.dart';
 import 'package:voice_app/ffi/simulst_ffi_bridge.dart';
 import 'package:voice_app/models/model_manager.dart';
@@ -39,6 +40,9 @@ class _SimultaneousTranslationScreenState
   final TextEditingController _transcriptController = TextEditingController();
   final TextEditingController _translationController = TextEditingController();
 
+  late final ScrollController _pageScrollController;
+  late final ScrollController _outputScrollController;
+
   List<ModelInfo> _models = [];
   ModelInfo? _selectedModel;
   bool _loadingModels = true;
@@ -54,10 +58,15 @@ class _SimultaneousTranslationScreenState
   final List<_SimulstSegmentRow> _segments = [];
   String _partialTranscript = '';
   String _partialTranslation = '';
+  bool _userScrolledUp = false;
+  int _currentSessionStartIndex = 0;
 
   @override
   void initState() {
     super.initState();
+    _pageScrollController = ScrollController();
+    _outputScrollController = ScrollController();
+    _outputScrollController.addListener(_onScroll);
     _audioRecorder = AudioRecorder();
     _recordSub = _audioRecorder.onStateChanged().listen((state) {
       setState(() => _recordState = state);
@@ -74,6 +83,8 @@ class _SimultaneousTranslationScreenState
     _audioRecorder.dispose();
     _transcriptController.dispose();
     _translationController.dispose();
+    _pageScrollController.dispose();
+    _outputScrollController.dispose();
     _simulst.deinitialize();
     super.dispose();
   }
@@ -195,9 +206,10 @@ class _SimultaneousTranslationScreenState
     try {
       await _simulst.reset();
       setState(() {
-        _segments.clear();
+        _currentSessionStartIndex = _segments.length;
         _partialTranscript = '';
         _partialTranslation = '';
+        _userScrolledUp = false;
         _updateDisplays();
       });
 
@@ -264,7 +276,9 @@ class _SimultaneousTranslationScreenState
         for (final t in r.finalizedTranslations) {
           final text = t.trim();
           if (text.isEmpty) continue;
-          if (_segments.isNotEmpty && _segments.last.translation.isEmpty) {
+          if (_segments.isNotEmpty &&
+              _segments.length - 1 >= _currentSessionStartIndex &&
+              _segments.last.translation.isEmpty) {
             _segments.last.translation = text;
           } else {
             _segments.add(_SimulstSegmentRow(translation: text));
@@ -291,8 +305,59 @@ class _SimultaneousTranslationScreenState
       _segments.clear();
       _partialTranscript = '';
       _partialTranslation = '';
+      _userScrolledUp = false;
       _updateDisplays();
     });
+  }
+
+  void _onScroll() {
+    if (_outputScrollController.hasClients) {
+      final position = _outputScrollController.position;
+      final isAtBottom = position.pixels >= position.maxScrollExtent - 10;
+      if (isAtBottom) {
+        if (_userScrolledUp) {
+          setState(() {
+            _userScrolledUp = false;
+          });
+        }
+      } else {
+        if (position.userScrollDirection != ScrollDirection.idle) {
+          if (!_userScrolledUp) {
+            setState(() {
+              _userScrolledUp = true;
+            });
+          }
+        }
+      }
+    }
+  }
+
+  void _scrollToBottom() {
+    if (_outputScrollController.hasClients) {
+      final position = _outputScrollController.position;
+
+      // If the user has scrolled up, do not force scroll to bottom
+      if (_userScrolledUp) {
+        return;
+      }
+
+      // Check if the user is currently at the bottom (within a 10px tolerance)
+      // before the new layout rendering occurs.
+      final isAtBottom = position.pixels >= position.maxScrollExtent - 10;
+      final shouldScroll = isAtBottom || position.maxScrollExtent == 0;
+
+      if (shouldScroll) {
+        Future.delayed(const Duration(milliseconds: 50), () {
+          if (_outputScrollController.hasClients) {
+            _outputScrollController.animateTo(
+              _outputScrollController.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    }
   }
 
   void _updateDisplays() {
@@ -329,6 +394,8 @@ class _SimultaneousTranslationScreenState
       text: combinedText,
       selection: TextSelection.collapsed(offset: combinedText.length),
     );
+
+    _scrollToBottom();
   }
 
   String _removeSpacesBetweenChinese(String text) {
@@ -361,6 +428,7 @@ class _SimultaneousTranslationScreenState
           children: [
             Expanded(
               child: SingleChildScrollView(
+                controller: _pageScrollController,
                 physics: const BouncingScrollPhysics(),
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -388,7 +456,6 @@ class _SimultaneousTranslationScreenState
                     if (_simulst.isInitialized) ...[
                       _buildOutputCard(
                         title: 'Interpretation Results',
-                        controller: _transcriptController,
                         enabled: true,
                         hint: isRecording ? 'Listening & Translating...' : 'Results appear here...',
                       ),
@@ -637,11 +704,118 @@ class _SimultaneousTranslationScreenState
 
   Widget _buildOutputCard({
     required String title,
-    required TextEditingController controller,
     required bool enabled,
     required String hint,
   }) {
     if (!enabled) return const SizedBox.shrink();
+
+    // Collect all elements to display
+    final widgets = <Widget>[];
+
+    for (var i = 0; i < _segments.length; i++) {
+      final seg = _segments[i];
+      final segmentWidgets = <Widget>[];
+      
+      if (_enableTranscribe && seg.transcript.isNotEmpty) {
+        segmentWidgets.add(
+          Text(
+            _removeSpacesBetweenChinese(seg.transcript),
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF4A5568), // Transcription: Charcoal
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+      
+      if (_enableTranslate && seg.translation.isNotEmpty) {
+        if (segmentWidgets.isNotEmpty) {
+          segmentWidgets.add(const SizedBox(height: 4));
+        }
+        segmentWidgets.add(
+          Text(
+            _removeSpacesBetweenChinese(seg.translation),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1E3C72), // Translation: Deep Indigo/Blue
+              height: 1.4,
+            ),
+          ),
+        );
+      }
+
+      if (segmentWidgets.isNotEmpty) {
+        widgets.add(
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: segmentWidgets,
+            ),
+          ),
+        );
+      }
+    }
+
+    // Append partial (in-progress) segment
+    final partialWidgets = <Widget>[];
+    if (_partialTranscript.isNotEmpty && _enableTranscribe) {
+      partialWidgets.add(
+        Text(
+          _removeSpacesBetweenChinese(_partialTranscript),
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w500,
+            color: const Color(0xFF4A5568).withOpacity(0.5), // Faded transcription
+            height: 1.4,
+          ),
+        ),
+      );
+    }
+
+    if (_partialTranslation.isNotEmpty && _enableTranslate) {
+      if (partialWidgets.isNotEmpty) {
+        partialWidgets.add(const SizedBox(height: 4));
+      }
+      partialWidgets.add(
+        Text(
+          _removeSpacesBetweenChinese(_partialTranslation),
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF1E3C72).withOpacity(0.5), // Faded translation
+            height: 1.4,
+          ),
+        ),
+      );
+    }
+
+    if (partialWidgets.isNotEmpty) {
+      widgets.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.blue.shade100.withOpacity(0.5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: partialWidgets,
+          ),
+        ),
+      );
+    }
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -667,27 +841,46 @@ class _SimultaneousTranslationScreenState
               color: Color(0xFF2D3748),
             ),
           ),
-          const SizedBox(height: 10),
-          TextField(
-            controller: controller,
-            maxLines: 15,
-            readOnly: true,
-            style: const TextStyle(fontSize: 15, height: 1.4, color: Color(0xFF2D3748)),
-            decoration: InputDecoration(
-              hintText: hint,
-              hintStyle: TextStyle(color: Colors.grey.shade400),
-              filled: true,
-              fillColor: Colors.grey.shade50,
-              border: OutlineInputBorder(
+          const SizedBox(height: 12),
+          if (widgets.isEmpty)
+            Container(
+              height: 200,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade50,
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                border: Border.all(color: Colors.grey.shade200),
               ),
-              enabledBorder: OutlineInputBorder(
+              child: Text(
+                hint,
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+              ),
+            )
+          else
+            Container(
+              height: 480,
+              decoration: BoxDecoration(
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.grey.shade200, width: 1.5),
+                border: Border.all(color: Colors.grey.shade200),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+              child: Scrollbar(
+                controller: _outputScrollController,
+                thumbVisibility: true,
+                child: SingleChildScrollView(
+                  controller: _outputScrollController,
+                  physics: const BouncingScrollPhysics(),
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: widgets,
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
         ],
       ),
     );

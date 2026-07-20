@@ -223,6 +223,12 @@ void LlamaGgufDecoder::Reset() {
   segment_count_ = 0;
   current_segment_chunk_index_ = 0;
   total_chunks_prefilled_ = 0;
+  sys_prompt_len_ = 0;
+  segment_start_positions_.clear();
+  segment_history_.clear();
+  system_prompt_.clear();
+  current_segment_audio_.clear();
+  last_generated_ids_.clear();
 }
 
 std::vector<float> LlamaGgufDecoder::EmbedText(const std::string& text) const {
@@ -315,6 +321,59 @@ void LlamaGgufDecoder::TruncateKv(int32_t remove_len) {
   const int32_t new_len = std::max(0, n_past_ - remove_len);
   llama_memory_seq_rm(llama_get_memory(ctx_), 0, new_len, n_past_);
   n_past_ = new_len;
+}
+
+void LlamaGgufDecoder::EvictCacheKeepRecent(int32_t keep_count) {
+  if (!ctx_ || segment_history_.size() <= static_cast<size_t>(keep_count) || keep_count <= 0) {
+    return;
+  }
+
+  // 1. Keep only the recent segment inputs in history
+  const size_t discard_count = segment_history_.size() - keep_count;
+  segment_history_.erase(segment_history_.begin(), segment_history_.begin() + discard_count);
+
+  // 2. Clear KV Cache completely
+  llama_memory_clear(llama_get_memory(ctx_), true);
+  n_past_ = 0;
+  prompt_kv_len_ = -1;
+  current_segment_chunk_index_ = 0;
+  total_chunks_prefilled_ = 0;
+
+  // 3. Re-prefill the system prompt (if any)
+  if (!system_prompt_.empty()) {
+    std::vector<float> prompt_emb = EmbedText(system_prompt_);
+    if (!prompt_emb.empty()) {
+      PrefillEmbeddings(prompt_emb.data(), prompt_emb.size() / n_embd_, false);
+    }
+  }
+  sys_prompt_len_ = n_past_;
+
+  // 4. Re-prefill the recent segments sequentially
+  segment_start_positions_.clear();
+  for (size_t i = 0; i < segment_history_.size(); ++i) {
+    segment_start_positions_.push_back(n_past_);
+    const auto& seg = segment_history_[i];
+
+    std::vector<float> segment_prefix;
+    segment_prefix.insert(segment_prefix.end(), meta_.emb_a.begin(), meta_.emb_a.end());
+    segment_prefix.insert(segment_prefix.end(), seg.audio_embeds.begin(), seg.audio_embeds.end());
+    segment_prefix.insert(segment_prefix.end(), meta_.emb_a_end.begin(), meta_.emb_a_end.end());
+
+    // Prefill segment prefix (<A> + audio + </A>)
+    PrefillEmbeddings(segment_prefix.data(), segment_prefix.size() / n_embd_, false);
+
+    // Prefill generated tokens one by one
+    for (int32_t tok_id : seg.generated_ids) {
+      std::vector<float> emb = EmbedTokenId(tok_id);
+      PrefillEmbeddings(emb.data(), 1, false);
+    }
+  }
+
+  // 5. Update prompt_kv_len_
+  if (!segment_history_.empty()) {
+    prompt_kv_len_ = n_past_ - static_cast<int32_t>(segment_history_.back().generated_ids.size());
+    if (prompt_kv_len_ < 0) prompt_kv_len_ = 0;
+  }
 }
 
 int32_t LlamaGgufDecoder::ArgMax(const std::vector<float>& logits) {
@@ -445,6 +504,8 @@ std::string LlamaGgufDecoder::AutoregressAfterAEnd(
     if (prompt_kv_len_ < 0) prompt_kv_len_ = 0;
   }
 
+  last_generated_ids_ = generated_ids;
+
   if (generated_ids.empty() || !vocab) return "";
 
   std::vector<llama_token> out_tokens(generated_ids.begin(), generated_ids.end());
@@ -474,6 +535,7 @@ std::string LlamaGgufDecoder::FeedChunk(
 
   std::vector<float> prefix;
   if (n_past_ == 0) {
+    system_prompt_ = prompt;
     if (!prompt.empty()) {
       std::vector<float> prompt_emb = EmbedText(prompt);
       prompt_emb_frames =
@@ -482,13 +544,20 @@ std::string LlamaGgufDecoder::FeedChunk(
     }
     prefix.insert(prefix.end(), meta_.emb_a.begin(), meta_.emb_a.end());
     a_token_frames = 1;
+
+    sys_prompt_len_ = prompt_emb_frames;
+    segment_start_positions_.clear();
+    segment_start_positions_.push_back(sys_prompt_len_);
   } else if (is_new_segment) {
     prefix.insert(prefix.end(), meta_.emb_a.begin(), meta_.emb_a.end());
     a_token_frames = 1;
+
+    segment_start_positions_.push_back(n_past_at_start);
   }
 
   const int32_t audio_frames = (audio_embeds && num_frames > 0) ? num_frames : 0;
   if (audio_embeds && num_frames > 0) {
+    current_segment_audio_.insert(current_segment_audio_.end(), audio_embeds, audio_embeds + num_frames * n_embd_);
     const size_t audio_bytes =
         static_cast<size_t>(num_frames) * static_cast<size_t>(n_embd_) * sizeof(float);
     const size_t old = prefix.size();
@@ -536,6 +605,15 @@ std::string LlamaGgufDecoder::FeedChunk(
   std::string text = AutoregressAfterAEnd(
       max_new_tokens, repetition_penalty, first_token_eos_threshold, punct_kv_mode,
       apply_penalty, on_partial);
+
+  {
+    SavedSegmentInputs saved;
+    saved.audio_embeds = std::move(current_segment_audio_);
+    saved.generated_ids = last_generated_ids_;
+    segment_history_.push_back(std::move(saved));
+    current_segment_audio_.clear();
+  }
+
   if (clear_kv_on_sentence_end && !text.empty()) {
     text = MaybeEvictCache(std::move(text));
   }

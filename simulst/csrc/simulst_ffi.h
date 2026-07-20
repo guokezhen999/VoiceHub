@@ -20,7 +20,8 @@ typedef struct SimulstHandle SimulstHandle;
 //   keep_kv_across_segments   - keep LLM KV across VAD segments (default true)
 //   clear_kv_on_sentence_punct- reset KV on . ? ! 。 ？ ！ (default false)
 //   num_chunks              - ONNX encoder steps per LLM prefill (default 1)
-//   max_llm_kv_segments_base- segment budget at num_chunks=1 (default 64)
+//   max_llm_kv_segments_base- segment budget at num_chunks=1 (default 56)
+//   keep_recent_segments    - segments to keep on eviction (default 12)
 //   max_llm_segments        - explicit override, 0 = base / num_chunks
 //   embed_chunk_size        - explicit override in embed frames, 0 = auto
 SimulstHandle* simulst_create(const char* json_config);
