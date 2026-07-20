@@ -15,7 +15,9 @@ find_path(NLOHMANN_JSON_INCLUDE_DIR
     HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/nlohmann
           ${CMAKE_SOURCE_DIR}/../third_party/nlohmann
           /usr/local/include
-          /opt/homebrew/include)
+          /opt/homebrew/include
+          ${CMAKE_CURRENT_SOURCE_DIR}/../../sherpa-onnx/build-android-arm64-v8a/_deps/json-src/include
+    NO_CMAKE_FIND_ROOT_PATH)
 if(NLOHMANN_JSON_INCLUDE_DIR)
     message(STATUS "Found nlohmann/json at ${NLOHMANN_JSON_INCLUDE_DIR}")
 else()
@@ -83,19 +85,18 @@ else()
         set(SHERPA_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx")
     endif()
 
-    # Locate the prebuilt dylib (prefer the install tree, then the build tree).
     find_library(SHERPA_ONNX_C_API_LIB
         NAMES sherpa-onnx-c-api
         HINTS ${SHERPA_ROOT}/build/install/lib
               ${SHERPA_ROOT}/build/lib
+              ${SHERPA_ROOT}/build-android-arm64-v8a/install/lib
+              ${SHERPA_ROOT}/build-android-arm64-v8a/lib
               ${SHERPA_ROOT}/build-swift-macos/install/lib
-        PATH_SUFFIXES lib)
+        PATH_SUFFIXES lib
+        NO_CMAKE_FIND_ROOT_PATH)
     if(NOT SHERPA_ONNX_C_API_LIB)
         message(FATAL_ERROR
-            "libsherpa-onnx-c-api.dylib not found. Build sherpa-onnx first:\n"
-            "  cd sherpa-onnx && mkdir -p build && cd build\n"
-            "  cmake .. -DBUILD_SHARED_LIBS=ON && cmake --build .\n"
-            "  cmake --install . --config Release")
+            "libsherpa-onnx-c-api not found. Build sherpa-onnx first.")
     endif()
 
     # Resolve the include directory for c-api.h.
@@ -103,7 +104,9 @@ else()
         NAMES c-api.h
         HINTS ${SHERPA_ROOT}/sherpa-onnx/c-api
               ${SHERPA_ROOT}/build/install/include/sherpa-onnx/c-api
-        PATH_SUFFIXES sherpa-onnx/c-api)
+              ${SHERPA_ROOT}/build-android-arm64-v8a/install/include/sherpa-onnx/c-api
+        PATH_SUFFIXES sherpa-onnx/c-api
+        NO_CMAKE_FIND_ROOT_PATH)
     if(NOT SHERPA_ONNX_INCLUDE_DIR)
         message(FATAL_ERROR "sherpa-onnx c-api.h not found under ${SHERPA_ROOT}")
     endif()

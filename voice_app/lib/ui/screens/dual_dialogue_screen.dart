@@ -14,6 +14,7 @@ import 'package:voice_app/services/native_nmt_service.dart';
 import 'package:voice_app/services/nmt_service_common.dart';
 import 'package:voice_app/services/tts_service.dart';
 import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 
 enum _SpeakerSide { a, b }
@@ -925,18 +926,21 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
                             padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
                             child: Row(
                               children: [
-                                const Expanded(
+                                Expanded(
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.people_alt_rounded, size: 24, color: Color(0xFF1E3C72)),
-                                      SizedBox(width: 8),
-                                      Text(
-                                        'Dual Dialogue (双人对话)',
-                                        style: TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Color(0xFF2D3748),
+                                      const Icon(Icons.people_alt_rounded, size: 24, color: Color(0xFF1E3C72)),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        child: ResponsiveBilingualText(
+                                          english: 'Dual Dialogue',
+                                          chinese: '双人对话',
+                                          style: const TextStyle(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.bold,
+                                            color: Color(0xFF2D3748),
+                                          ),
                                         ),
                                       ),
                                     ],

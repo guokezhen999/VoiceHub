@@ -19,9 +19,13 @@ if(NOT EXISTS "${LLAMA_CPP_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "llama.cpp not found at ${LLAMA_CPP_DIR}")
 endif()
 
-# Enable Metal GPU acceleration on Apple Silicon (GGML_METAL defaults ON on macOS).
-set(GGML_METAL ON CACHE BOOL "Enable Metal backend" FORCE)
-set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal library" FORCE)
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(GGML_METAL ON CACHE BOOL "Enable Metal backend" FORCE)
+    set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "Embed Metal library" FORCE)
+else()
+    set(GGML_METAL OFF CACHE BOOL "Disable Metal backend" FORCE)
+    set(GGML_METAL_EMBED_LIBRARY OFF CACHE BOOL "Embed Metal library" FORCE)
+endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build static llama" FORCE)
 
 add_subdirectory("${LLAMA_CPP_DIR}" _llama_build)
@@ -41,7 +45,9 @@ endif()
 
 find_path(NLOHMANN_JSON_INCLUDE_DIR
     NAMES nlohmann/json.hpp
-    HINTS /opt/homebrew/include /usr/local/include)
+    HINTS /opt/homebrew/include /usr/local/include
+          ${CMAKE_CURRENT_SOURCE_DIR}/../../sherpa-onnx/build-android-arm64-v8a/_deps/json-src/include
+    NO_CMAKE_FIND_ROOT_PATH)
 
 if(NLOHMANN_JSON_INCLUDE_DIR)
     message(STATUS "Found nlohmann/json at ${NLOHMANN_JSON_INCLUDE_DIR}")

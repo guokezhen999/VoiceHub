@@ -11,7 +11,9 @@ option(SIMULST_BUILD_TEST "Build test executable" ON)
 # ---- nlohmann/json ----------------------------------------------------------
 find_path(NLOHMANN_JSON_INCLUDE_DIR
     NAMES nlohmann/json.hpp
-    HINTS /opt/homebrew/include /usr/local/include)
+    HINTS /opt/homebrew/include /usr/local/include
+          ${CMAKE_CURRENT_SOURCE_DIR}/../../sherpa-onnx/build-android-arm64-v8a/_deps/json-src/include
+    NO_CMAKE_FIND_ROOT_PATH)
 if(NOT NLOHMANN_JSON_INCLUDE_DIR)
     message(FATAL_ERROR "nlohmann/json.hpp not found. Install: brew install nlohmann-json")
 endif()
@@ -30,8 +32,13 @@ set(LLAMA_CPP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../llama/llama.cpp")
 if(NOT EXISTS "${LLAMA_CPP_DIR}/CMakeLists.txt")
     message(FATAL_ERROR "llama.cpp not found at ${LLAMA_CPP_DIR}")
 endif()
-set(GGML_METAL ON CACHE BOOL "" FORCE)
-set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+if(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(GGML_METAL ON CACHE BOOL "" FORCE)
+    set(GGML_METAL_EMBED_LIBRARY ON CACHE BOOL "" FORCE)
+else()
+    set(GGML_METAL OFF CACHE BOOL "" FORCE)
+    set(GGML_METAL_EMBED_LIBRARY OFF CACHE BOOL "" FORCE)
+endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${LLAMA_CPP_DIR}" _llama_build)
 
@@ -42,12 +49,17 @@ if(NOT ONNXRUNTIME_LIB OR NOT ONNXRUNTIME_INCLUDE_DIR)
         NAMES onnxruntime
         HINTS ${SHERPA_ROOT}/build/install/lib
               ${SHERPA_ROOT}/build/lib
-              ${SHERPA_ROOT}/flutter/sherpa_onnx_macos/macos)
+              ${SHERPA_ROOT}/build-android-arm64-v8a/install/lib
+              ${SHERPA_ROOT}/build-android-arm64-v8a/1.27.0/jni/arm64-v8a
+              ${SHERPA_ROOT}/flutter/sherpa_onnx_macos/macos
+        NO_CMAKE_FIND_ROOT_PATH)
     find_path(ONNXRUNTIME_INCLUDE_DIR
         NAMES onnxruntime_cxx_api.h
         HINTS ${SHERPA_ROOT}/build/_deps/onnxruntime-src/include
               ${SHERPA_ROOT}/build/install/include
-              /opt/homebrew/include)
+              ${SHERPA_ROOT}/build-android-arm64-v8a/1.27.0/headers
+              /opt/homebrew/include
+        NO_CMAKE_FIND_ROOT_PATH)
 endif()
 if(NOT ONNXRUNTIME_LIB OR NOT ONNXRUNTIME_INCLUDE_DIR)
     message(FATAL_ERROR "onnxruntime not found. Build sherpa-onnx first or pass -DONNXRUNTIME_LIB=...")
@@ -59,10 +71,15 @@ if(NOT SHERPA_ONNX_C_API_LIB OR NOT SHERPA_ONNX_INCLUDE_DIR)
         NAMES sherpa-onnx-c-api
         HINTS ${SHERPA_ROOT}/build/install/lib
               ${SHERPA_ROOT}/build/lib
-              ${SHERPA_ROOT}/flutter/sherpa_onnx_macos/macos)
+              ${SHERPA_ROOT}/build-android-arm64-v8a/install/lib
+              ${SHERPA_ROOT}/flutter/sherpa_onnx_macos/macos
+        NO_CMAKE_FIND_ROOT_PATH)
     find_path(SHERPA_ONNX_INCLUDE_DIR
         NAMES c-api.h
-        HINTS ${SHERPA_ROOT}/sherpa-onnx/c-api)
+        HINTS ${SHERPA_ROOT}/sherpa-onnx/c-api
+              ${SHERPA_ROOT}/build/install/include/sherpa-onnx/c-api
+              ${SHERPA_ROOT}/build-android-arm64-v8a/install/include/sherpa-onnx/c-api
+        NO_CMAKE_FIND_ROOT_PATH)
 endif()
 if(NOT SHERPA_ONNX_C_API_LIB OR NOT SHERPA_ONNX_INCLUDE_DIR)
     message(FATAL_ERROR "sherpa-onnx c-api not found")

@@ -18,6 +18,7 @@ import 'package:voice_app/main.dart'; // To access showPerfMetricsNotifier if ne
 import 'package:voice_app/services/cascade_history_store.dart';
 import 'package:voice_app/services/audio_file_history_store.dart';
 import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 import 'package:voice_app/models/subtitle_segment.dart';
 
 /// A single segment pairing an ASR sentence with its MT translation.
@@ -964,16 +965,23 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                     // --- Title Section ---
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.layers_rounded, size: 26, color: Color(0xFF1E3C72)),
-                              SizedBox(width: 8),
-                              Text(
-                                'Cascade Translation (级联式翻译)',
-                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-                                textAlign: TextAlign.center,
+                              const Icon(Icons.layers_rounded, size: 26, color: Color(0xFF1E3C72)),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: ResponsiveBilingualText(
+                                  english: 'Cascade Translation',
+                                  chinese: '级联式翻译',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2D3748),
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
                               ),
                             ],
                           ),

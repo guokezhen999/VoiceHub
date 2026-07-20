@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'package:voice_app/models/subtitle_segment.dart';
 import 'package:voice_app/services/audio_file_history_store.dart';
 import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 import 'package:voice_app/services/subtitle_export_service.dart';
 
 class AudioFileTranscriptionScreen extends StatefulWidget {
@@ -879,12 +880,19 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  children: const [
-                    Icon(Icons.subtitles_rounded, size: 24, color: Colors.white),
-                    SizedBox(width: 8),
-                    Text(
-                      'Audio File Transcription',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  children: [
+                    const Icon(Icons.subtitles_rounded, size: 24, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: ResponsiveBilingualText(
+                        english: 'Audio File Transcription',
+                        chinese: '音频文件转录',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -892,6 +900,8 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                 const Text(
                   'Offline transcription & translation with timestamps',
                   style: TextStyle(fontSize: 11, color: Colors.white70),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ],
             ),
@@ -1408,24 +1418,21 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
                           style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                         ),
                         const SizedBox(height: 2),
-                        Row(
-                          children: [
-                            Text(
-                              'RTF: ${_translationRtf != null ? _translationRtf!.toStringAsFixed(3) : 'N/A'}',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: (_translationRtf != null && _translationRtf! < 1.0) ? Colors.green : Colors.orange,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            if (_translationTokensPerSec != null)
-                              Text(
-                                '${_translationTokensPerSec!.toStringAsFixed(1)} tok/s ($_totalTranslationTokens tokens)',
-                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple),
-                              ),
-                          ],
+                        Text(
+                          'RTF: ${_translationRtf != null ? _translationRtf!.toStringAsFixed(3) : 'N/A'}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: (_translationRtf != null && _translationRtf! < 1.0) ? Colors.green : Colors.orange,
+                          ),
                         ),
+                        if (_translationTokensPerSec != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            '${_translationTokensPerSec!.toStringAsFixed(1)} tok/s ($_totalTranslationTokens tokens)',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.purple),
+                          ),
+                        ],
                       ],
                     ),
                   ),

@@ -955,6 +955,72 @@ class ModelManager {
     notifyChange();
   }
 
+  /// Opens an archive from disk using file streams to avoid loading the whole
+  /// compressed file into memory (critical on iOS with multi-GB model bundles).
+  static Future<Archive> _decodeArchiveFromPath(
+    String archivePath, {
+    required List<Directory> tempDirs,
+    required List<InputFileStream> openStreams,
+  }) async {
+    final pathLower = archivePath.toLowerCase();
+    var decodePath = archivePath;
+
+    Future<void> decompressToTempTar(
+      void Function(InputStream input, OutputStream output) decodeStream,
+    ) async {
+      final tempDir = await Directory.systemTemp.createTemp('voice_archive_');
+      tempDirs.add(tempDir);
+      decodePath = p.join(tempDir.path, 'temp.tar');
+      final input = InputFileStream(archivePath);
+      final output = OutputFileStream(decodePath);
+      try {
+        decodeStream(input, output);
+      } finally {
+        await input.close();
+        await output.close();
+      }
+    }
+
+    if (pathLower.endsWith('.tar.gz') ||
+        pathLower.endsWith('.tgz') ||
+        (pathLower.endsWith('.gz') && !pathLower.endsWith('.tar.gz'))) {
+      await decompressToTempTar(GZipDecoder().decodeStream);
+    } else if (pathLower.endsWith('.tar.bz2') ||
+        pathLower.endsWith('.tbz2') ||
+        (pathLower.endsWith('.bz2') && !pathLower.endsWith('.tar.bz2'))) {
+      await decompressToTempTar(BZip2Decoder().decodeStream);
+    }
+
+    final input = InputFileStream(decodePath);
+    openStreams.add(input);
+
+    if (pathLower.endsWith('.zip')) {
+      return ZipDecoder().decodeStream(input);
+    }
+    if (pathLower.endsWith('.tar') ||
+        pathLower.endsWith('.tar.gz') ||
+        pathLower.endsWith('.tgz') ||
+        pathLower.endsWith('.tar.bz2') ||
+        pathLower.endsWith('.tbz2') ||
+        pathLower.endsWith('.gz') ||
+        pathLower.endsWith('.bz2')) {
+      return TarDecoder().decodeStream(input);
+    }
+    await input.close();
+    openStreams.remove(input);
+    throw Exception('Unsupported archive format: ${p.extension(archivePath)}');
+  }
+
+  static Future<void> _writeArchiveFile(ArchiveFile file, String outPath) async {
+    await File(outPath).parent.create(recursive: true);
+    final output = OutputFileStream(outPath);
+    try {
+      file.writeContent(output, freeMemory: true);
+    } finally {
+      await output.close();
+    }
+  }
+
   static Future<void> importModelFromArchive({
     required String archivePath,
     required String type,
@@ -980,23 +1046,15 @@ class ModelManager {
       await destDir.create(recursive: true);
     }
 
-    final bytes = await File(archivePath).readAsBytes();
-    final Archive archive;
-    final pathLower = archivePath.toLowerCase();
-
-    if (pathLower.endsWith('.zip')) {
-      archive = ZipDecoder().decodeBytes(bytes);
-    } else if (pathLower.endsWith('.tar.gz') || pathLower.endsWith('.tgz') || pathLower.endsWith('.gz')) {
-      final tarBytes = GZipDecoder().decodeBytes(bytes);
-      archive = TarDecoder().decodeBytes(tarBytes);
-    } else if (pathLower.endsWith('.tar.bz2') || pathLower.endsWith('.tbz2') || pathLower.endsWith('.bz2')) {
-      final tarBytes = BZip2Decoder().decodeBytes(bytes);
-      archive = TarDecoder().decodeBytes(tarBytes);
-    } else if (pathLower.endsWith('.tar')) {
-      archive = TarDecoder().decodeBytes(bytes);
-    } else {
-      throw Exception('Unsupported archive format: ${p.extension(archivePath)}');
-    }
+    final tempDirs = <Directory>[];
+    final openStreams = <InputFileStream>[];
+    Archive? archive;
+    try {
+      archive = await _decodeArchiveFromPath(
+        archivePath,
+        tempDirs: tempDirs,
+        openStreams: openStreams,
+      );
 
     // Find base path in archive (ignoring macOS metadata/junk files)
     String? basePath;
@@ -1065,10 +1123,7 @@ class ModelManager {
       if (ggufEntry.key.isNotEmpty) {
         final archiveFile = archiveFiles[ggufEntry.key];
         if (archiveFile != null) {
-          final data = archiveFile.content as List<int>;
-          final outFile = File(destPath);
-          await outFile.create(recursive: true);
-          await outFile.writeAsBytes(data);
+          await _writeArchiveFile(archiveFile, destPath);
           if (onProgress != null) {
             onProgress(1.0);
           }
@@ -1085,10 +1140,7 @@ class ModelManager {
 
         if (file != null) {
           final outPath = p.join(destPath, destRelPath);
-          final data = file.content as List<int>;
-          final outFile = File(outPath);
-          await outFile.create(recursive: true);
-          await outFile.writeAsBytes(data);
+          await _writeArchiveFile(file, outPath);
         }
 
         completed++;
@@ -1116,6 +1168,19 @@ class ModelManager {
     }
 
     notifyChange();
+    } finally {
+      if (archive != null) {
+        await archive.clear();
+      }
+      for (final stream in openStreams) {
+        await stream.close();
+      }
+      for (final dir in tempDirs) {
+        if (dir.existsSync()) {
+          await dir.delete(recursive: true);
+        }
+      }
+    }
   }
 
   /// Import a single .gguf file as an LLM model.

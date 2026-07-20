@@ -24,7 +24,7 @@ class _TranslationScreenState extends State<TranslationScreen> {
 
   // Backend selection
   String _backendType = 'nmt'; // 'nmt' = Marian ONNX, 'llm' = Llama GGUF
-  static const _backendLabels = {'nmt': 'Marian ONNX', 'llm': 'Llama GGUF'};
+  static const _backendLabels = {'nmt': 'Marian', 'llm': 'Llama'};
 
   // Model selection and language pairs
   List<ModelInfo> _nmtModels = [];
@@ -286,30 +286,37 @@ class _TranslationScreenState extends State<TranslationScreen> {
                   ],
                 ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text(
                       'Backend Engine:',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
                     ),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'nmt', label: Text('Marian ONNX')),
-                        ButtonSegment(value: 'llm', label: Text('Llama GGUF')),
-                      ],
-                      selected: {_backendType},
-                      onSelectionChanged: (selected) {
-                        setState(() {
-                          _backendType = selected.first;
-                          _deinitializeEngine();
-                          _loadModels();
-                        });
-                      },
-                      style: SegmentedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                        selectedBackgroundColor: const Color(0xFF1E3C72),
-                        selectedForegroundColor: Colors.white,
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'nmt', label: Text('Marian')),
+                            ButtonSegment(value: 'llm', label: Text('Llama')),
+                          ],
+                          selected: {_backendType},
+                          onSelectionChanged: (selected) {
+                            setState(() {
+                              _backendType = selected.first;
+                              _deinitializeEngine();
+                              _loadModels();
+                            });
+                          },
+                          style: SegmentedButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            selectedBackgroundColor: const Color(0xFF1E3C72),
+                            selectedForegroundColor: Colors.white,
+                          ),
+                        ),
                       ),
                     ),
                   ],

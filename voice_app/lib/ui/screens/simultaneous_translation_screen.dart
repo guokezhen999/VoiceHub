@@ -14,6 +14,7 @@ import 'package:voice_app/services/advanced_settings.dart';
 import 'package:voice_app/services/simulst_history_store.dart';
 import 'package:voice_app/services/audio_file_history_store.dart';
 import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 import 'package:voice_app/models/subtitle_segment.dart';
 
 class _SimulstSegmentRow {
@@ -598,19 +599,22 @@ class _SimultaneousTranslationScreenState
                   children: [
                     Row(
                       children: [
-                        const Expanded(
+                        Expanded(
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Icon(Icons.hearing_rounded,
+                              const Icon(Icons.hearing_rounded,
                                   size: 26, color: Color(0xFF1E3C72)),
-                              SizedBox(width: 8),
-                              Text(
-                                'Simultaneous Interpretation',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF2D3748),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: ResponsiveBilingualText(
+                                  english: 'Simultaneous Interpretation',
+                                  chinese: '同声传译',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF2D3748),
+                                  ),
                                 ),
                               ),
                             ],

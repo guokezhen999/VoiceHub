@@ -793,9 +793,13 @@ class _ChatScreenState extends State<ChatScreen> {
                 Expanded(
                   child: Row(
                     children: [
-                      const Text(
-                        'LLM Chat Configuration',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                      const Flexible(
+                        child: Text(
+                          'LLM Chat Configuration',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
                       const SizedBox(width: 6),
                       Icon(

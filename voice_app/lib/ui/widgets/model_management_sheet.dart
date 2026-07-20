@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -137,7 +139,13 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
     }
     if (srcPath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a directory or archive file.')),
+        SnackBar(
+          content: Text(
+            Platform.isIOS && _currentType != 'llm'
+                ? 'Please select an archive file.'
+                : 'Please select a directory or archive file.',
+          ),
+        ),
       );
       return;
     }
@@ -327,6 +335,18 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
     }
   }
 
+  List<ButtonSegment<String>> _buildTypeSegments(bool showIcons) {
+    Widget? icon(IconData data) => showIcons ? Icon(data) : null;
+
+    return [
+      ButtonSegment(value: 'asr', label: const Text('ASR'), icon: icon(Icons.mic)),
+      ButtonSegment(value: 'tts', label: const Text('TTS'), icon: icon(Icons.speaker_notes)),
+      ButtonSegment(value: 'nmt', label: const Text('NMT'), icon: icon(Icons.translate)),
+      ButtonSegment(value: 'llm', label: const Text('LLM'), icon: icon(Icons.psychology)),
+      ButtonSegment(value: 'simulst', label: const Text('AST'), icon: icon(Icons.hearing)),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
@@ -375,22 +395,21 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
             // Segmented selector for ASR vs TTS vs NMT
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'asr', label: Text('ASR'), icon: Icon(Icons.mic)),
-                  ButtonSegment(value: 'tts', label: Text('TTS'), icon: Icon(Icons.speaker_notes)),
-                  ButtonSegment(value: 'nmt', label: Text('NMT'), icon: Icon(Icons.translate)),
-                  ButtonSegment(value: 'llm', label: Text('LLM'), icon: Icon(Icons.psychology)),
-                  ButtonSegment(value: 'simulst', label: Text('AST'), icon: Icon(Icons.hearing)),
-                ],
-                selected: {_currentType},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    _currentType = value.first;
-                    _selectedPath = null;
-                    _modelNameController.clear();
-                  });
-                  _loadModels();
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final showIcons = constraints.maxWidth >= 520;
+                  return SegmentedButton<String>(
+                    segments: _buildTypeSegments(showIcons),
+                    selected: {_currentType},
+                    onSelectionChanged: (value) {
+                      setState(() {
+                        _currentType = value.first;
+                        _selectedPath = null;
+                        _modelNameController.clear();
+                      });
+                      _loadModels();
+                    },
+                  );
                 },
               ),
             ),
@@ -497,14 +516,18 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
                           const SizedBox(height: 16),
                           Row(
                             children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: _isImporting ? null : (_currentType == 'llm' ? _pickGgufFile : _pickDirectory),
-                                  icon: Icon(_currentType == 'llm' ? Icons.insert_drive_file : Icons.folder_open),
-                                  label: Text(_currentType == 'llm' ? 'GGUF File' : 'Folder'),
+                              if (_currentType == 'llm' || !Platform.isIOS) ...[
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: _isImporting
+                                        ? null
+                                        : (_currentType == 'llm' ? _pickGgufFile : _pickDirectory),
+                                    icon: Icon(_currentType == 'llm' ? Icons.insert_drive_file : Icons.folder_open),
+                                    label: Text(_currentType == 'llm' ? 'GGUF File' : 'Folder'),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: 12),
+                                const SizedBox(width: 12),
+                              ],
                               Expanded(
                                 child: OutlinedButton.icon(
                                   onPressed: _isImporting ? null : _pickArchiveFile,

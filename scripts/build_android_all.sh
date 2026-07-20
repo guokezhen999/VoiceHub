@@ -42,22 +42,11 @@ mkdir -p "${JNILIBS_DIR}"
 echo ""
 echo "---> Building sherpa-onnx for Android..."
 cd "${ROOT_DIR}/sherpa-onnx"
-mkdir -p build-android-arm64 && cd build-android-arm64
-cmake .. \
-    -DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}" \
-    -DANDROID_ABI=arm64-v8a \
-    -DANDROID_PLATFORM=android-24 \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=ON \
-    -DSHERPA_ONNX_ENABLE_C_API=ON \
-    -DSHERPA_ONNX_ENABLE_PYTHON=OFF \
-    -DSHERPA_ONNX_ENABLE_JNI=OFF
-
-cmake --build . --config Release -j$(sysctl -n hw.logicalcpu || echo 4)
+ANDROID_NDK="${NDK}" SHERPA_ONNX_ENABLE_C_API=ON ./build-android-arm64-v8a.sh
 
 # Copy sherpa-onnx and onnxruntime libs
-find . -name "libsherpa-onnx-c-api.so" -exec cp {} "${JNILIBS_DIR}/" \; 2>/dev/null || true
-find . -name "libonnxruntime.so" -exec cp {} "${JNILIBS_DIR}/" \; 2>/dev/null || true
+find build-android-arm64-v8a -name "libsherpa-onnx*.so" -exec cp {} "${JNILIBS_DIR}/" \; 2>/dev/null || true
+find build-android-arm64-v8a -name "libonnxruntime.so" -exec cp {} "${JNILIBS_DIR}/" \; 2>/dev/null || true
 
 # 3. Build llama
 echo ""
@@ -76,6 +65,12 @@ cmake --build . --config Release -j$(sysctl -n hw.logicalcpu || echo 4)
 
 find . -name "libllamacpp_nmt.so" -exec cp {} "${JNILIBS_DIR}/" \; 2>/dev/null || true
 
+SHERPA_BUILD_DIR="${ROOT_DIR}/sherpa-onnx/build-android-arm64-v8a"
+ONNX_LIB="${SHERPA_BUILD_DIR}/install/lib/libonnxruntime.so"
+ONNX_INC="${SHERPA_BUILD_DIR}/1.27.0/headers"
+SHERPA_C_API_LIB="${SHERPA_BUILD_DIR}/install/lib/libsherpa-onnx-c-api.so"
+SHERPA_C_API_INC="${ROOT_DIR}/sherpa-onnx/sherpa-onnx/c-api"
+
 # 4. Build opus_mt
 echo ""
 echo "---> Building opus_mt for Android..."
@@ -87,7 +82,9 @@ cmake ../csrc \
     -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release \
     -DOPUS_MT_BUILD_SHARED=ON \
-    -DOPUS_MT_BUILD_TEST=OFF
+    -DOPUS_MT_BUILD_TEST=OFF \
+    -DONNXRUNTIME_LIB="${ONNX_LIB}" \
+    -DONNXRUNTIME_INCLUDE_DIR="${ONNX_INC}"
 
 cmake --build . --config Release -j$(sysctl -n hw.logicalcpu || echo 4)
 
@@ -103,7 +100,9 @@ cmake ../csrc \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release \
-    -DVOICE_ENGINE_BUILD_SHARED=ON
+    -DVOICE_ENGINE_BUILD_SHARED=ON \
+    -DSHERPA_ONNX_C_API_LIB="${SHERPA_C_API_LIB}" \
+    -DSHERPA_ONNX_INCLUDE_DIR="${SHERPA_C_API_INC}"
 
 cmake --build . --config Release -j$(sysctl -n hw.logicalcpu || echo 4)
 
@@ -119,7 +118,12 @@ cmake ../csrc \
     -DANDROID_ABI=arm64-v8a \
     -DANDROID_PLATFORM=android-24 \
     -DCMAKE_BUILD_TYPE=Release \
-    -DSIMULST_BUILD_SHARED=ON
+    -DSIMULST_BUILD_SHARED=ON \
+    -DSIMULST_BUILD_TEST=OFF \
+    -DONNXRUNTIME_LIB="${ONNX_LIB}" \
+    -DONNXRUNTIME_INCLUDE_DIR="${ONNX_INC}" \
+    -DSHERPA_ONNX_C_API_LIB="${SHERPA_C_API_LIB}" \
+    -DSHERPA_ONNX_INCLUDE_DIR="${SHERPA_C_API_INC}"
 
 cmake --build . --config Release -j$(sysctl -n hw.logicalcpu || echo 4)
 

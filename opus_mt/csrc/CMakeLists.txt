@@ -21,7 +21,9 @@ find_path(NLOHMANN_JSON_INCLUDE_DIR
     HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../third_party/nlohmann
           ${CMAKE_SOURCE_DIR}/../third_party/nlohmann
           /usr/local/include
-          /opt/homebrew/include)
+          /opt/homebrew/include
+          ${CMAKE_CURRENT_SOURCE_DIR}/../../sherpa-onnx/build-android-arm64-v8a/_deps/json-src/include
+    NO_CMAKE_FIND_ROOT_PATH)
 
 if(NLOHMANN_JSON_INCLUDE_DIR)
     message(STATUS "Found nlohmann/json at ${NLOHMANN_JSON_INCLUDE_DIR}")
@@ -47,6 +49,8 @@ else()
     set(ONNX_PATHS
         ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build/_deps/onnxruntime-src
         ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build/_deps/onnxruntime-install
+        ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build-android-arm64-v8a/1.27.0
+        ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build-android-arm64-v8a/_deps/onnxruntime-src
         ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build-swift-macos/_deps/onnxruntime-install
         ${CMAKE_CURRENT_SOURCE_DIR}/../sherpa-onnx/build-ios/ios-onnxruntime
         /opt/homebrew
@@ -55,12 +59,14 @@ else()
     find_path(ONNXRUNTIME_INCLUDE_DIR
         NAMES onnxruntime_cxx_api.h
         HINTS ${ONNX_PATHS}
-        PATH_SUFFIXES include include/onnxruntime)
+        PATH_SUFFIXES include include/onnxruntime headers
+        NO_CMAKE_FIND_ROOT_PATH)
 
     find_library(ONNXRUNTIME_LIB
         NAMES onnxruntime libonnxruntime
         HINTS ${ONNX_PATHS}
-        PATH_SUFFIXES lib)
+        PATH_SUFFIXES lib jni/arm64-v8a
+        NO_CMAKE_FIND_ROOT_PATH)
 
     if(NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
         message(FATAL_ERROR

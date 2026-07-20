@@ -22,6 +22,7 @@
 #include "espeak-ng/speak_lib.h"
 #include "phoneme_ids.hpp"
 #include "phonemize.hpp"
+#include "sherpa-onnx/csrc/file-utils.h"
 #include "sherpa-onnx/csrc/macros.h"
 #include "sherpa-onnx/csrc/onnx-utils.h"
 
@@ -275,12 +276,6 @@ std::vector<TokenIDs> OnlinePiperPhonemizeLexicon::ConvertTextToTokenIds(
 
   return ans;
 }
-
-#if __ANDROID_API__ >= 9
-template OnlinePiperPhonemizeLexicon::OnlinePiperPhonemizeLexicon(
-    AAssetManager *mgr, const std::string &tokens, const std::string &data_dir,
-    const OfflineTtsVitsModelMetaData &meta_data, bool debug);
-#endif
 
 #if __OHOS__
 template OnlinePiperPhonemizeLexicon::OnlinePiperPhonemizeLexicon(
