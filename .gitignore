@@ -34,6 +34,27 @@ sherpa-onnx/build/
 sherpa-onnx/build-ios/
 sherpa-onnx/build-swift-macos/
 
+# Android Build Files & Artifacts
+*.apk
+*.aab
+*.aar
+*.dex
+*.class
+local.properties
+**/local.properties
+key.properties
+**/key.properties
+**/*.keystore
+**/*.jks
+.gradle/
+**/.gradle/
+.cxx/
+**/.cxx/
+**/.externalNativeBuild/
+**/captures/
+**/gradle-wrapper.jar
+**/GeneratedPluginRegistrant.java
+
 # Flutter specific ignores (in addition to voice_app/.gitignore)
 voice_app/.dart_tool/
 voice_app/.flutter-plugins
@@ -54,6 +75,7 @@ llama/flutter/llamacpp_macos/.pub/
 
 # Large Files (dylibs, ML models, Archive packages)
 *.dylib
+*.so
 model/
 
 # Audio/Wav test datasets (Large audio files)
