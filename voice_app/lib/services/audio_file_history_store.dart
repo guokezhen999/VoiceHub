@@ -83,6 +83,23 @@ class AudioFileHistorySession {
 
   int get segmentCount => subtitles.length;
 
+  AudioFileHistorySession copyWith({
+    String? fileName,
+    DateTime? updatedAt,
+  }) {
+    return AudioFileHistorySession(
+      id: id,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      fileName: fileName ?? this.fileName,
+      sourceLang: sourceLang,
+      targetLang: targetLang,
+      duration: duration,
+      audioPath: audioPath,
+      subtitles: subtitles,
+    );
+  }
+
   AudioFileHistorySummary toSummary() => AudioFileHistorySummary(
         id: id,
         createdAt: createdAt,
@@ -242,6 +259,17 @@ class AudioFileHistoryStore {
       index.add(summary);
     }
     await _writeIndex(index);
+  }
+
+  /// Renames a session and updates the index.
+  static Future<void> rename(String id, String newName) async {
+    final session = await load(id);
+    if (session == null) return;
+    final updated = session.copyWith(
+      fileName: newName.trim(),
+      updatedAt: DateTime.now(),
+    );
+    await save(updated);
   }
 
   /// Deletes a session, its copied media file, and updates the index.

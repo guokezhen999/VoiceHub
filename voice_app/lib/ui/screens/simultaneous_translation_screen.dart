@@ -11,11 +11,23 @@ import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/vad_settings.dart';
 import 'package:voice_app/services/advanced_settings.dart';
 
+import 'package:voice_app/services/simulst_history_store.dart';
+import 'package:voice_app/services/audio_file_history_store.dart';
+import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/models/subtitle_segment.dart';
+
 class _SimulstSegmentRow {
   String transcript;
   String translation;
+  double start;
+  double end;
 
-  _SimulstSegmentRow({this.transcript = '', this.translation = ''});
+  _SimulstSegmentRow({
+    this.transcript = '',
+    this.translation = '',
+    this.start = 0.0,
+    this.end = 0.0,
+  });
 }
 
 class SimultaneousTranslationScreen extends StatefulWidget {
@@ -60,6 +72,9 @@ class _SimultaneousTranslationScreenState
   String _partialTranslation = '';
   bool _userScrolledUp = false;
   int _currentSessionStartIndex = 0;
+
+  final List<Float32List> _sessionAudioChunks = [];
+  int _recordedSampleCount = 0;
 
   @override
   void initState() {
@@ -204,6 +219,8 @@ class _SimultaneousTranslationScreenState
     }
 
     try {
+      _sessionAudioChunks.clear();
+      _recordedSampleCount = 0;
       await _simulst.reset();
       setState(() {
         _currentSessionStartIndex = _segments.length;
@@ -213,7 +230,14 @@ class _SimultaneousTranslationScreenState
         _updateDisplays();
       });
 
-      _audioStreamSub = await _simulst.startStream(_audioRecorder, _onPoll);
+      _audioStreamSub = await _simulst.startStream(
+        _audioRecorder,
+        _onPoll,
+        onAudioSamples: (samples) {
+          _sessionAudioChunks.add(samples);
+          _recordedSampleCount += samples.length;
+        },
+      );
     } catch (e) {
       debugPrint('Simulst recording error: $e');
       if (mounted) {
@@ -242,15 +266,21 @@ class _SimultaneousTranslationScreenState
 
     setState(() {
       if (_partialTranscript.isNotEmpty || _partialTranslation.isNotEmpty) {
+        final segEnd = _recordedSampleCount / 16000.0;
+        final segStart = (segEnd - 2.0).clamp(0.0, segEnd);
         _segments.add(_SimulstSegmentRow(
           transcript: _partialTranscript,
           translation: _partialTranslation,
+          start: segStart,
+          end: segEnd,
         ));
       }
       _partialTranscript = '';
       _partialTranslation = '';
       _updateDisplays();
     });
+
+    _checkAndSaveHistory();
   }
 
   void _onPoll(SimulstPollResult r) {
@@ -260,9 +290,19 @@ class _SimultaneousTranslationScreenState
           final transcript = seg.transcript.trim();
           final translation = seg.translation.trim();
           if (transcript.isEmpty && translation.isEmpty) continue;
+
+          double segStart = seg.start;
+          double segEnd = seg.end;
+          if (segEnd <= segStart) {
+            segEnd = _recordedSampleCount / 16000.0;
+            segStart = (segEnd - 2.0).clamp(0.0, segEnd);
+          }
+
           _segments.add(_SimulstSegmentRow(
             transcript: transcript,
             translation: translation,
+            start: segStart,
+            end: segEnd,
           ));
         }
         _partialTranscript = '';
@@ -271,7 +311,13 @@ class _SimultaneousTranslationScreenState
         for (final t in r.finalizedTranscripts) {
           final text = t.trim();
           if (text.isEmpty) continue;
-          _segments.add(_SimulstSegmentRow(transcript: text));
+          final segEnd = _recordedSampleCount / 16000.0;
+          final segStart = (segEnd - 2.0).clamp(0.0, segEnd);
+          _segments.add(_SimulstSegmentRow(
+            transcript: text,
+            start: segStart,
+            end: segEnd,
+          ));
         }
         for (final t in r.finalizedTranslations) {
           final text = t.trim();
@@ -281,7 +327,13 @@ class _SimultaneousTranslationScreenState
               _segments.last.translation.isEmpty) {
             _segments.last.translation = text;
           } else {
-            _segments.add(_SimulstSegmentRow(translation: text));
+            final segEnd = _recordedSampleCount / 16000.0;
+            final segStart = (segEnd - 2.0).clamp(0.0, segEnd);
+            _segments.add(_SimulstSegmentRow(
+              translation: text,
+              start: segStart,
+              end: segEnd,
+            ));
           }
         }
       }
@@ -298,6 +350,116 @@ class _SimultaneousTranslationScreenState
       }
       _updateDisplays();
     });
+  }
+
+  Float32List _buildVadAudioSamples() {
+    int totalMicSamples = 0;
+    for (final chunk in _sessionAudioChunks) {
+      totalMicSamples += chunk.length;
+    }
+    if (totalMicSamples == 0 || _segments.isEmpty) {
+      return Float32List(1600);
+    }
+
+    final allMicSamples = Float32List(totalMicSamples);
+    int offset = 0;
+    for (final chunk in _sessionAudioChunks) {
+      allMicSamples.setAll(offset, chunk);
+      offset += chunk.length;
+    }
+
+    double maxEnd = 0.0;
+    for (final seg in _segments) {
+      if (seg.end > maxEnd) maxEnd = seg.end;
+    }
+    if (maxEnd <= 0.0) {
+      maxEnd = totalMicSamples / 16000.0;
+    }
+
+    final int totalVadSamples = (maxEnd * 16000).ceil();
+    final vadSamples = Float32List(totalVadSamples);
+
+    for (final seg in _segments) {
+      final int startIdx = (seg.start * 16000).floor().clamp(0, totalMicSamples);
+      final int endIdx = (seg.end * 16000).ceil().clamp(startIdx, totalMicSamples);
+
+      if (endIdx > startIdx) {
+        final int targetStart = (seg.start * 16000).floor().clamp(0, vadSamples.length);
+        final int lengthToCopy = (endIdx - startIdx).clamp(0, vadSamples.length - targetStart);
+
+        for (int i = 0; i < lengthToCopy; i++) {
+          vadSamples[targetStart + i] = allMicSamples[startIdx + i];
+        }
+      }
+    }
+
+    return vadSamples;
+  }
+
+  Future<void> _checkAndSaveHistory() async {
+    if (_segments.isEmpty) return;
+
+    try {
+      final id = SimulstHistoryStore.newId();
+      final vadSamples = _buildVadAudioSamples();
+      final audioPath = await SimulstHistoryStore.saveVadAudioWav(
+        id: id,
+        samples: vadSamples,
+      );
+
+      final subtitles = <SubtitleSegment>[];
+      for (int i = 0; i < _segments.length; i++) {
+        final seg = _segments[i];
+        subtitles.add(SubtitleSegment(
+          index: i + 1,
+          start: seg.start,
+          end: seg.end > seg.start ? seg.end : seg.start + 1.0,
+          originalText: seg.transcript,
+          translatedText: seg.translation,
+        ));
+      }
+
+      final double totalDuration = subtitles.isNotEmpty ? subtitles.last.end : 0.0;
+      final now = DateTime.now();
+
+      final session = AudioFileHistorySession(
+        id: id,
+        createdAt: now,
+        updatedAt: now,
+        fileName: '同声传译_${_formatSessionTime(now)}',
+        sourceLang: _transcribeLang,
+        targetLang: _translateLang,
+        duration: totalDuration,
+        audioPath: audioPath,
+        subtitles: subtitles,
+      );
+
+      await SimulstHistoryStore.save(session);
+      debugPrint('Simultaneous translation history saved: $id');
+    } catch (e) {
+      debugPrint('Failed to save simulst translation history: $e');
+    }
+  }
+
+  String _formatSessionTime(DateTime dt) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${dt.year}${two(dt.month)}${two(dt.day)}_${two(dt.hour)}${two(dt.minute)}${two(dt.second)}';
+  }
+
+  void _openHistory() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AudioFileHistorySheet(
+        title: '同声传译历史记录',
+        subtitle: '浏览同声传译历史，回放 VAD 识别语音段与对应字幕',
+        fetchItems: SimulstHistoryStore.list,
+        loadSession: SimulstHistoryStore.load,
+        deleteItem: SimulstHistoryStore.delete,
+        renameItem: SimulstHistoryStore.rename,
+      ),
+    );
   }
 
   void _clearResults() {
@@ -434,19 +596,30 @@ class _SimultaneousTranslationScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Row(
                       children: [
-                        Icon(Icons.hearing_rounded,
-                            size: 26, color: Color(0xFF1E3C72)),
-                        SizedBox(width: 8),
-                        Text(
-                          'Simultaneous Interpretation',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2D3748),
+                        const Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.hearing_rounded,
+                                  size: 26, color: Color(0xFF1E3C72)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Simultaneous Interpretation',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF2D3748),
+                                ),
+                              ),
+                            ],
                           ),
+                        ),
+                        IconButton(
+                          onPressed: _openHistory,
+                          icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
+                          tooltip: 'History',
                         ),
                       ],
                     ),

@@ -10,7 +10,22 @@ import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
 
 /// Bottom sheet listing saved audio file transcription sessions.
 class AudioFileHistorySheet extends StatefulWidget {
-  const AudioFileHistorySheet({Key? key}) : super(key: key);
+  final String title;
+  final String subtitle;
+  final Future<List<AudioFileHistorySummary>> Function()? fetchItems;
+  final Future<AudioFileHistorySession?> Function(String id)? loadSession;
+  final Future<void> Function(String id)? deleteItem;
+  final Future<void> Function(String id, String newName)? renameItem;
+
+  const AudioFileHistorySheet({
+    Key? key,
+    this.title = 'Audio Transcription History',
+    this.subtitle = 'Browse previous file transcriptions and listen to their audios',
+    this.fetchItems,
+    this.loadSession,
+    this.deleteItem,
+    this.renameItem,
+  }) : super(key: key);
 
   @override
   State<AudioFileHistorySheet> createState() => _AudioFileHistorySheetState();
@@ -52,7 +67,9 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
 
   Future<void> _reload() async {
     setState(() => _loading = true);
-    final items = await AudioFileHistoryStore.list();
+    final items = widget.fetchItems != null
+        ? await widget.fetchItems!()
+        : await AudioFileHistoryStore.list();
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -98,7 +115,9 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
   Future<void> _previewItem(AudioFileHistorySummary summary) async {
     setState(() => _busyId = summary.id);
     try {
-      final session = await AudioFileHistoryStore.load(summary.id);
+      final session = widget.loadSession != null
+          ? await widget.loadSession!(summary.id)
+          : await AudioFileHistoryStore.load(summary.id);
       if (!mounted) return;
       if (session == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -129,6 +148,48 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
     }
   }
 
+  Future<void> _renameItem(AudioFileHistorySummary summary) async {
+    final controller = TextEditingController(text: summary.fileName);
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename History'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'History Name',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (newName == null || newName.isEmpty || newName == summary.fileName) return;
+
+    setState(() => _busyId = summary.id);
+    try {
+      if (widget.renameItem != null) {
+        await widget.renameItem!(summary.id, newName);
+      } else {
+        await AudioFileHistoryStore.rename(summary.id, newName);
+      }
+      await _reload();
+    } finally {
+      if (mounted) setState(() => _busyId = null);
+    }
+  }
+
   Future<void> _deleteItem(AudioFileHistorySummary summary) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -149,7 +210,11 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
 
     setState(() => _busyId = summary.id);
     try {
-      await AudioFileHistoryStore.delete(summary.id);
+      if (widget.deleteItem != null) {
+        await widget.deleteItem!(summary.id);
+      } else {
+        await AudioFileHistoryStore.delete(summary.id);
+      }
       await _reload();
     } finally {
       if (mounted) setState(() => _busyId = null);
@@ -181,10 +246,10 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
             padding: const EdgeInsets.fromLTRB(20, 16, 8, 8),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'Audio Transcription History',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                    widget.title,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
                   ),
                 ),
                 IconButton(
@@ -200,7 +265,7 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Browse previous file transcriptions and listen to their audios',
+                widget.subtitle,
                 style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
               ),
             ),
@@ -270,6 +335,11 @@ class _AudioFileHistorySheetState extends State<AudioFileHistorySheet> {
                                 : Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
+                                      IconButton(
+                                        tooltip: 'Rename',
+                                        onPressed: () => _renameItem(item),
+                                        icon: Icon(Icons.edit_outlined, color: Colors.blueGrey.shade600, size: 20),
+                                      ),
                                       IconButton(
                                         tooltip: 'Open chat bubbles',
                                         onPressed: () => _previewItem(item),

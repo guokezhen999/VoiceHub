@@ -206,8 +206,9 @@ class SimulstService {
 
   Future<StreamSubscription<Uint8List>> startStream(
     AudioRecorder recorder,
-    void Function(SimulstPollResult) onPoll,
-  ) async {
+    void Function(SimulstPollResult) onPoll, {
+    void Function(Float32List samples)? onAudioSamples,
+  }) async {
     final audioStream = await recorder.startStream(recordConfig);
     final replyPort = ReceivePort();
 
@@ -220,6 +221,7 @@ class SimulstService {
     final streamSub = audioStream.listen((data) {
       if (_workerSendPort == null) return;
       final samples = convertBytesToFloat32(Uint8List.fromList(data));
+      onAudioSamples?.call(samples);
       _workerSendPort!.send(_SimulstAudioChunkRequest(
         replyPort: replyPort.sendPort,
         samples: samples,

@@ -171,12 +171,14 @@ class AsrService {
   /// Returns the [StreamSubscription] so the caller can cancel it later.
   Future<StreamSubscription<Uint8List>> startStream(
     AudioRecorder recorder,
-    void Function(VoiceEnginePollResult) onPoll,
-  ) async {
+    void Function(VoiceEnginePollResult) onPoll, {
+    void Function(Float32List samples)? onAudioSamples,
+  }) async {
     final audioStream = await recorder.startStream(recordConfig);
     return audioStream.listen((data) {
       if (handle == null) return;
       final samples = convertBytesToFloat32(Uint8List.fromList(data));
+      onAudioSamples?.call(samples);
       VoiceEngineBridge.instance.acceptWaveform(handle!, samples);
       final result = VoiceEngineBridge.instance.poll(handle!);
       onPoll(result);

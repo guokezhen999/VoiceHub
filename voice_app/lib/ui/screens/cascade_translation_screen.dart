@@ -15,11 +15,23 @@ import 'package:voice_app/services/nmt_service_common.dart';
 import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
 import 'package:voice_app/main.dart'; // To access showPerfMetricsNotifier if needed
 
+import 'package:voice_app/services/cascade_history_store.dart';
+import 'package:voice_app/services/audio_file_history_store.dart';
+import 'package:voice_app/ui/widgets/audio_file_history_sheet.dart';
+import 'package:voice_app/models/subtitle_segment.dart';
+
 /// A single segment pairing an ASR sentence with its MT translation.
 class _CascadeSegment {
   String asr;
   String mt;
-  _CascadeSegment({required this.asr, this.mt = ''});
+  double start;
+  double end;
+  _CascadeSegment({
+    required this.asr,
+    this.mt = '',
+    this.start = 0.0,
+    this.end = 0.0,
+  });
 }
 
 class CascadeTranslationScreen extends StatefulWidget {
@@ -105,6 +117,11 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   final List<String> _ttsQueue = [];
   bool _isProcessingTtsQueue = false;
   bool _isTtsPlaying = false;
+
+  // Audio recording collection for VAD history
+  final List<Float32List> _sessionAudioChunks = [];
+  int _recordedSampleCount = 0;
+  bool _hasSavedCurrentSession = false;
 
   // Initialization loading status
   bool _isInitializingASR = false;
@@ -438,7 +455,18 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           _ttsRtf = null;
         });
 
-        _audioStreamSub = await _asr.startStream(_audioRecorder, _onAsrPoll);
+        _sessionAudioChunks.clear();
+        _recordedSampleCount = 0;
+        _hasSavedCurrentSession = false;
+
+        _audioStreamSub = await _asr.startStream(
+          _audioRecorder,
+          _onAsrPoll,
+          onAudioSamples: (samples) {
+            _sessionAudioChunks.add(samples);
+            _recordedSampleCount += samples.length;
+          },
+        );
       }
     } catch (e) {
       debugPrint('Cascade ASR Recording Error: $e');
@@ -448,14 +476,31 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
   /// Process a poll result from the voice_engine pipeline: append finalized
   /// sentences to the cascade pipeline and update the live ASR display.
   void _onAsrPoll(VoiceEnginePollResult r) {
-    for (final f in r.finalized) {
+    for (int i = 0; i < r.finalized.length; i++) {
+      final f = r.finalized[i];
       var text = AsrService.stripLeadingPuncs(f);
       text = AsrService.formatTextWithCasing(text, _selectedAsrModel?.casing ?? 'mixed');
       if (text.isNotEmpty) {
         final segIdx = _cascadeSegments.length;
         _sentences.add(text);
         _sentenceIndex += 1;
-        _cascadeSegments.add(_CascadeSegment(asr: text));
+
+        double segStart = 0.0;
+        double segEnd = 0.0;
+        if (i < r.segments.length) {
+          segStart = r.segments[i].start;
+          segEnd = r.segments[i].end;
+        }
+        if (segEnd <= segStart) {
+          segEnd = _recordedSampleCount / 16000.0;
+          segStart = (segEnd - 2.0).clamp(0.0, segEnd);
+        }
+
+        _cascadeSegments.add(_CascadeSegment(
+          asr: text,
+          start: segStart,
+          end: segEnd,
+        ));
         _addSentenceToPipeline(text, segIdx);
       }
     }
@@ -480,14 +525,31 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       // Flush the VAD tail and drain any remaining finalized segments.
       if (_asr.handle != null) {
         final r = _asr.flushAndPoll();
-        for (final f in r.finalized) {
+        for (int i = 0; i < r.finalized.length; i++) {
+          final f = r.finalized[i];
           var text = AsrService.stripLeadingPuncs(f);
           text = AsrService.formatTextWithCasing(text, _selectedAsrModel?.casing ?? 'mixed');
           if (text.isNotEmpty) {
             final segIdx = _cascadeSegments.length;
             _sentences.add(text);
             _sentenceIndex += 1;
-            _cascadeSegments.add(_CascadeSegment(asr: text));
+
+            double segStart = 0.0;
+            double segEnd = 0.0;
+            if (i < r.segments.length) {
+              segStart = r.segments[i].start;
+              segEnd = r.segments[i].end;
+            }
+            if (segEnd <= segStart) {
+              segEnd = _recordedSampleCount / 16000.0;
+              segStart = (segEnd - 2.0).clamp(0.0, segEnd);
+            }
+
+            _cascadeSegments.add(_CascadeSegment(
+              asr: text,
+              start: segStart,
+              end: segEnd,
+            ));
             _addSentenceToPipeline(text, segIdx);
           }
         }
@@ -506,6 +568,10 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           _currentStep = 0;
           _pipelineStatus = "No Speech Detected";
         });
+      }
+
+      if (!_isProcessingQueue) {
+        _checkAndSaveHistory();
       }
     } catch (e) {
       debugPrint('Cascade Stop Recording Error: $e');
@@ -585,6 +651,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
       _isProcessingQueue = false;
       _currentTranslatingIndex = -1;
     });
+
+    _checkAndSaveHistory();
   }
 
   /// Independent TTS playback queue - runs concurrently with ASR/MT.
@@ -697,6 +765,121 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     }
   }
 
+  Float32List _buildVadAudioSamples() {
+    int totalMicSamples = 0;
+    for (final chunk in _sessionAudioChunks) {
+      totalMicSamples += chunk.length;
+    }
+    if (totalMicSamples == 0 || _cascadeSegments.isEmpty) {
+      return Float32List(1600);
+    }
+
+    final allMicSamples = Float32List(totalMicSamples);
+    int offset = 0;
+    for (final chunk in _sessionAudioChunks) {
+      allMicSamples.setAll(offset, chunk);
+      offset += chunk.length;
+    }
+
+    double maxEnd = 0.0;
+    for (final seg in _cascadeSegments) {
+      if (seg.end > maxEnd) maxEnd = seg.end;
+    }
+    if (maxEnd <= 0.0) {
+      maxEnd = totalMicSamples / 16000.0;
+    }
+
+    final int totalVadSamples = (maxEnd * 16000).ceil();
+    final vadSamples = Float32List(totalVadSamples);
+
+    for (final seg in _cascadeSegments) {
+      final int startIdx = (seg.start * 16000).floor().clamp(0, totalMicSamples);
+      final int endIdx = (seg.end * 16000).ceil().clamp(startIdx, totalMicSamples);
+
+      if (endIdx > startIdx) {
+        final int targetStart = (seg.start * 16000).floor().clamp(0, vadSamples.length);
+        final int lengthToCopy = (endIdx - startIdx).clamp(0, vadSamples.length - targetStart);
+
+        for (int i = 0; i < lengthToCopy; i++) {
+          vadSamples[targetStart + i] = allMicSamples[startIdx + i];
+        }
+      }
+    }
+
+    return vadSamples;
+  }
+
+  Future<void> _checkAndSaveHistory() async {
+    if (_hasSavedCurrentSession) return;
+    if (_isRecording) return;
+    if (_isProcessingQueue) return;
+    if (_cascadeSegments.isEmpty) return;
+
+    _hasSavedCurrentSession = true;
+    try {
+      final id = CascadeHistoryStore.newId();
+      final vadSamples = _buildVadAudioSamples();
+      final audioPath = await CascadeHistoryStore.saveVadAudioWav(
+        id: id,
+        samples: vadSamples,
+      );
+
+      final subtitles = <SubtitleSegment>[];
+      for (int i = 0; i < _cascadeSegments.length; i++) {
+        final seg = _cascadeSegments[i];
+        subtitles.add(SubtitleSegment(
+          index: i + 1,
+          start: seg.start,
+          end: seg.end > seg.start ? seg.end : seg.start + 1.0,
+          originalText: seg.asr,
+          translatedText: seg.mt,
+        ));
+      }
+
+      final double totalDuration = subtitles.isNotEmpty ? subtitles.last.end : 0.0;
+      final now = DateTime.now();
+
+      final session = AudioFileHistorySession(
+        id: id,
+        createdAt: now,
+        updatedAt: now,
+        fileName: '级联翻译_${_formatSessionTime(now)}',
+        sourceLang: _selectedSourceLang,
+        targetLang: _selectedTargetLang,
+        duration: totalDuration,
+        audioPath: audioPath,
+        subtitles: subtitles,
+      );
+
+      await CascadeHistoryStore.save(session);
+      debugPrint('Cascade translation history saved: $id');
+    } catch (e) {
+      debugPrint('Failed to save cascade translation history: $e');
+    }
+  }
+
+  String _formatSessionTime(DateTime dt) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${dt.year}${two(dt.month)}${two(dt.day)}_${two(dt.hour)}${two(dt.minute)}${two(dt.second)}';
+  }
+
+  void _openHistory() {
+    _audioPlayer.stop();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AudioFileHistorySheet(
+        title: '级联翻译历史记录',
+        subtitle: '浏览级联翻译历史，回放 VAD 识别语音段与对应字幕',
+        fetchItems: CascadeHistoryStore.list,
+        loadSession: CascadeHistoryStore.load,
+        deleteItem: CascadeHistoryStore.delete,
+        renameItem: CascadeHistoryStore.rename,
+      ),
+    );
+  }
+
   void _clearConversation() {
     _audioPlayer.stop();
     setState(() {
@@ -779,15 +962,26 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // --- Title Section ---
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Row(
                       children: [
-                        Icon(Icons.layers_rounded, size: 26, color: Color(0xFF1E3C72)),
-                        SizedBox(width: 8),
-                        Text(
-                          'Cascade Translation (级联式翻译)',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-                          textAlign: TextAlign.center,
+                        const Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.layers_rounded, size: 26, color: Color(0xFF1E3C72)),
+                              SizedBox(width: 8),
+                              Text(
+                                'Cascade Translation (级联式翻译)',
+                                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _openHistory,
+                          icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
+                          tooltip: 'History',
                         ),
                       ],
                     ),
