@@ -1,3 +1,7 @@
+[English](#english) | [简体中文](#简体中文)
+
+---
+
 <h2 id="english">🇬🇧 English</h2>
 
 # macOS App Build and Packaging Guide
