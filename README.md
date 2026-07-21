@@ -75,10 +75,14 @@ VoiceHub's robust architecture is built upon several excellent open-source proje
 
 ### 📚 Documentation & Tutorials
 Please refer to the following documentation in the `@docs` directory for build instructions, model setup, and platform-specific guides:
-- 🍎 [macOS Build & Distribution Guide](docs/macos.md)
-- 📱 [iOS Build Guide](docs/ios.md)
-- 🧠 [Models Setup Guide](docs/models.md)
-- 🌍 [Opus-MT Setup Guide](docs/opus_mt.md)
+- 🍎 **macOS Build & Distribution Guide / macOS 构建与打包指南**
+  - [🇬🇧 English](docs/macos.md#english) | [🇨🇳 简体中文](docs/macos.md#简体中文)
+- 📱 **iOS Build Guide / iOS 编译指南**
+  - [🇬🇧 English](docs/ios.md#english) | [🇨🇳 简体中文](docs/ios.md#简体中文)
+- 🧠 **Models Setup Guide / 模型下载配置指南**
+  - [🇬🇧 English](docs/models.md#english) | [🇨🇳 简体中文](docs/models.md#简体中文)
+- 🌍 **Opus-MT Setup Guide / Opus-MT 部署指南**
+  - [🇬🇧 English](docs/opus_mt.md#english) | [🇨🇳 简体中文](docs/opus_mt.md#简体中文)
 
 ---
 
@@ -147,7 +151,11 @@ VoiceHub 的强大功能离不开以下优秀的开源项目：
 
 ### 📚 教程与文档
 关于环境搭建、编译打包和模型配置，请参考项目 `@docs` 目录下的详细教程：
-- 🍎 [macOS 构建与打包指南](docs/macos.md)
-- 📱 [iOS 编译指南](docs/ios.md)
-- 🧠 [模型下载配置指南](docs/models.md)
-- 🌍 [Opus-MT 部署指南](docs/opus_mt.md)
+- 🍎 **macOS Build & Distribution Guide / macOS 构建与打包指南**
+  - [🇬🇧 English](docs/macos.md#english) | [🇨🇳 简体中文](docs/macos.md#简体中文)
+- 📱 **iOS Build Guide / iOS 编译指南**
+  - [🇬🇧 English](docs/ios.md#english) | [🇨🇳 简体中文](docs/ios.md#简体中文)
+- 🧠 **Models Setup Guide / 模型下载配置指南**
+  - [🇬🇧 English](docs/models.md#english) | [🇨🇳 简体中文](docs/models.md#简体中文)
+- 🌍 **Opus-MT Setup Guide / Opus-MT 部署指南**
+  - [🇬🇧 English](docs/opus_mt.md#english) | [🇨🇳 简体中文](docs/opus_mt.md#简体中文)
