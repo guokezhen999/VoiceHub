@@ -1,3 +1,241 @@
+<h2 id="english">🇬🇧 English</h2>
+
+# Voice and Translation Model Setup Guide
+
+This document provides a guide for downloading, configuring, and placing the open-source AI models required by VoiceHub. Model hosting and inference in the project are mainly based on **sherpa-onnx** (Automatic Speech Recognition ASR and Text-to-Speech TTS), **opus_mt** (Neural Machine Translation MT), and **llama.cpp** (Large Language Model LLM).
+
+> 🔗 **sherpa-onnx Official Pre-trained Models Index**: [sherpa-onnx Pre-trained Models](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/index.html)
+
+---
+
+## 1. Directory Structure and Overview
+
+```text
+VoiceHub/
+└── models/
+    ├── asr/     # Automatic Speech Recognition models (powered by sherpa-onnx)
+    ├── tts/     # Text-to-Speech models (powered by sherpa-onnx)
+    ├── mt/      # Machine Translation models (opus-mt ONNX format, please see docs/opus_mt.md)
+    └── llm/     # Large Language Models (llama.cpp GGUF format)
+```
+
+> [!IMPORTANT]
+> - **File Ignore Reminder**: Model weight files are typically large and have been configured to be ignored in the project's `.gitignore`. Please do not commit local models to the Git repository.
+> - **iOS Upload and Archive Retention**: The App has built-in automatic archive extraction and importing features. On **iOS devices**, due to system restrictions, you cannot directly upload folder directories to the App's model repository; **only uploading compressed model files (such as `.tar.bz2` or `.zip`) is supported**. Therefore, when downloading models, please keep the original compressed archives for uploading and importing within the App.
+
+---
+
+## 2. ASR (Automatic Speech Recognition) Model Configuration
+
+The ASR module is powered by **sherpa-onnx**. VoiceHub currently **only adapts to Transducer architecture models** (i.e., models composed of `encoder.onnx`, `decoder.onnx`, and `joiner.onnx`), which are divided into **Online Transducer (Streaming)** and **Offline Transducer (Non-streaming)** based on usage scenarios.
+
+Official Transducer Model Repository:
+- 🔗 **Online Transducer**: [sherpa-onnx Online Transducer Models Index](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/index.html)
+- 🔗 **Offline Transducer**: [sherpa-onnx Offline Transducer Models Index](https://k2-fsa.github.io/sherpa/onnx/pretrained_models/offline-transducer/index.html)
+
+---
+
+### 2.1 Transducer Model Selection
+
+| Model Architecture Type | Recognition Mode | Typical Representative Model | Adaptation Notes & Applicable Scenarios |
+|---|---|---|---|
+| **Online Transducer** | Streaming | Zipformer Streaming | Outputs results in real-time while recording, low latency, suitable for simultaneous interpretation and streaming voice input |
+| **Offline Transducer** | Non-streaming | Zipformer Non-streaming | Decodes complete audio at once, high accuracy, complete context, suitable for full sentence/paragraph recognition |
+
+---
+
+### 2.2 Download and Configuration Examples
+
+#### Example 1: Chinese/Multilingual Streaming Transducer Model (`sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-12`)
+```bash
+mkdir -p models/asr
+cd models/asr
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-12.tar.bz2
+tar xvf sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-12.tar.bz2
+```
+
+Standard directory structure after extracting a streaming Transducer model (includes `encoder`, `decoder`, `joiner`, and `tokens.txt`):
+```text
+models/asr/sherpa-onnx-streaming-zipformer-multi-zh-hans-2023-12-12/
+├── encoder-epoch-20-avg-1.onnx   # Encoder ONNX model
+├── decoder-epoch-20-avg-1.onnx   # Decoder ONNX model
+├── joiner-epoch-20-avg-1.onnx    # Joiner ONNX model
+└── tokens.txt                    # Token vocabulary
+```
+
+#### Example 2: English Streaming Transducer Model (`sherpa-onnx-streaming-zipformer-en-2023-06-26`)
+```bash
+cd models/asr
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2
+tar xvf sherpa-onnx-streaming-zipformer-en-2023-06-26.tar.bz2
+```
+
+#### Example 3: Chinese-English Bilingual Non-streaming Transducer Model (`sherpa-onnx-zipformer-zh-en-2023-11-22`)
+```bash
+cd models/asr
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2
+tar xvf sherpa-onnx-zipformer-zh-en-2023-11-22.tar.bz2
+```
+
+---
+
+## 3. TTS (Text-to-Speech) Model Configuration
+
+The TTS module is powered by **sherpa-onnx**, specifically using **VITS** architecture speech synthesis models.
+
+Official VITS Models Summary Page: [sherpa-onnx VITS Models Index](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html)
+
+---
+
+### 3.1 VITS Model Selection
+
+| Model Identifier | Language Support | Number of Speakers | Applicable Scenarios |
+|---|---|---|---|
+| **vits-melo-tts-zh_en** | Chinese + English | 1 Speaker | Mixed Chinese and English bilingual reading |
+| **vits-piper-en_US-glados** | English | 1 Speaker | Lightweight, high-quality standard English reading |
+| **csukuangfj/sherpa-onnx-vits-zh-ll** | Chinese | 5 Speakers | Supports switching between 5 different Chinese voices/speakers |
+
+---
+
+### 3.2 Download and Configuration Examples
+
+#### Example 1: Chinese-English Bilingual Single-speaker Model (`vits-melo-tts-zh_en`)
+```bash
+mkdir -p models/tts
+cd models/tts
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-melo-tts-zh_en.tar.bz2
+tar xvf vits-melo-tts-zh_en.tar.bz2
+```
+
+Complete directory structure explanation after extraction:
+```text
+models/tts/vits-melo-tts-zh_en/
+├── model.onnx          # TTS synthesis ONNX model
+├── lexicon.txt         # Pronunciation dictionary (Phoneme Map)
+├── tokens.txt          # Token table
+├── date.fst            # Number/date conversion normalization model (optional)
+├── number.fst          # Number normalization model (optional)
+└── phone.fst           # Phoneme processing model (optional)
+```
+
+#### Example 2: English Single-speaker Model (`vits-piper-en_US-glados`)
+```bash
+cd models/tts
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-glados.tar.bz2
+tar xvf vits-piper-en_US-glados.tar.bz2
+```
+
+*Note: After extracting the Piper model, it often includes an `espeak-ng-data/` dependency folder. When running, ensure this folder remains in the same relative path as `model.onnx`.*
+
+#### Example 3: Chinese Multi-speaker Model (`csukuangfj/sherpa-onnx-vits-zh-ll`)
+```bash
+cd models/tts
+
+wget https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/sherpa-onnx-vits-zh-ll.tar.bz2
+tar xvf sherpa-onnx-vits-zh-ll.tar.bz2
+```
+
+---
+
+## 4. MT (Neural Machine Translation) Model Configuration
+
+The VoiceHub traditional NMT machine translation module is based on `opus_mt`. This model **cannot directly use the official raw HuggingFace weights**; it must be converted to ONNX and undergone INT8 quantization before being placed in the `models/mt/` directory.
+
+For the specific conversion and deployment process, please refer to the special guide: [opus_mt.md](opus_mt.md)
+
+---
+
+## 5. LLM (Large Language Model) Configuration
+
+VoiceHub uses **llama.cpp** as the large language model inference engine, and the required unified model format is **GGUF**. It supports the Qwen3 series as well as Tencent's Hunyuan Hy-MT2 translation large model, including `Q4_K_M` (4-bit medium quantization, balancing speed and footprint) and `Q8_0` (8-bit high precision quantization) quantized versions.
+
+Models should be uniformly stored in their corresponding subdirectories within `models/llm/`.
+
+---
+
+### 5.1 Qwen3-0.6B Model
+
+#### Q4_K_M Quantized Version
+```bash
+mkdir -p models/llm/qwen3-0.6B
+cd models/llm/qwen3-0.6B
+
+curl -L -o qwen3-0.6b-instruct-q4_k_m.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-0.6B-GGUF/repo?Revision=master&FilePath=Qwen3-0.6B-Q4_K_M.gguf"
+```
+
+#### Q8_0 Quantized Version
+```bash
+cd models/llm/qwen3-0.6B
+
+curl -L -o qwen3-0.6b-instruct-q8_0.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-0.6B-GGUF/repo?Revision=master&FilePath=Qwen3-0.6B-Q8_0.gguf"
+```
+
+---
+
+### 5.2 Qwen3-1.7B Model
+
+#### Q4_K_M Quantized Version
+```bash
+mkdir -p models/llm/qwen3-1.7B
+cd models/llm/qwen3-1.7B
+
+curl -L -o qwen3-1.7b-instruct-q4_k_m.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-1.7B-GGUF/repo?Revision=master&FilePath=Qwen3-1.7B-Q4_K_M.gguf"
+```
+
+#### Q8_0 Quantized Version
+```bash
+cd models/llm/qwen3-1.7B
+
+curl -L -o qwen3-1.7b-instruct-q8_0.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-1.7B-GGUF/repo?Revision=master&FilePath=Qwen3-1.7B-Q8_0.gguf"
+```
+
+---
+
+### 5.3 Qwen3-4B Model
+
+#### Q4_K_M Quantized Version
+```bash
+mkdir -p models/llm/qwen3-4B
+cd models/llm/qwen3-4B
+
+curl -L -o qwen3-4b-instruct-q4_k_m.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-4B-GGUF/repo?Revision=master&FilePath=Qwen3-4B-Q4_K_M.gguf"
+```
+
+#### Q8_0 Quantized Version
+```bash
+cd models/llm/qwen3-4B
+
+curl -L -o qwen3-4b-instruct-q8_0.gguf \
+  "https://modelscope.cn/api/v1/models/unsloth/Qwen3-4B-GGUF/repo?Revision=master&FilePath=Qwen3-4B-Q8_0.gguf"
+```
+
+---
+
+### 5.4 Tencent Hunyuan Hy-MT2-1.8B Translation Large Model
+
+#### Q4_K_M Quantized Version
+```bash
+mkdir -p models/llm/hy-mt2-1.8B
+cd models/llm/hy-mt2-1.8B
+
+curl -L -o hy-mt2-1.8b-q4_k_m.gguf \
+  "https://huggingface.co/tencent/Hy-MT2-1.8B-GGUF/resolve/main/Hy-MT2-1.8B-Q4_K_M.gguf"
+```
+
+---
+
+<h2 id="简体中文">🇨🇳 简体中文</h2>
+
 # 语音与翻译模型准备指南 (Model Setup Guide)
 
 本文档提供 VoiceHub 所需开源 AI 模型的下载、配置与放置指南。工程中模型托管与推理主要基于 **sherpa-onnx**（语音识别 ASR 与语音合成 TTS）、**opus_mt**（神经机器翻译 MT）以及 **llama.cpp**（大语言模型 LLM）。

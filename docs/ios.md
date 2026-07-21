@@ -1,3 +1,635 @@
+<h2 id="english">🇬🇧 English</h2>
+
+# iOS App Build and Packaging Guide
+
+This document covers the complete iOS build, signing, packaging, and distribution workflow for the VoiceHub Flutter project.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Project Architecture Overview](#2-project-architecture-overview)
+3. [Compiling C++ Native Libraries (xcframework)](#3-compiling-c-native-libraries-xcframework)
+   - [3.1 Compiling llama.cpp](#31-compiling-llamacpp)
+   - [3.2 Compiling opus_mt](#32-compiling-opus_mt)
+   - [3.3 Compiling sherpa-onnx](#33-compiling-sherpa-onnx)
+   - [3.4 Coexistence of Static and Dynamic Libraries](#34-coexistence-of-static-and-dynamic-libraries)
+4. [Building the Flutter iOS App](#4-building-the-flutter-ios-app)
+5. [Code Signing Configuration](#5-code-signing-configuration)
+6. [Packaging IPA](#6-packaging-ipa)
+7. [Deploying to Device](#7-deploying-to-device)
+8. [Distributing to App Store](#8-distributing-to-app-store)
+9. [Troubleshooting](#9-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+Before starting, ensure that the following tools are installed on your macOS machine:
+
+```bash
+# Xcode (includes iOS SDK, Simulator, and Command Line Tools)
+# Install from the App Store: https://apps.apple.com/app/xcode/id497799835
+
+# Flutter SDK
+# Installation guide: https://docs.flutter.dev/get-started/install/macos
+
+# Homebrew (used to install build dependencies)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# CMake and nlohmann-json (required for compiling C++ libraries)
+brew install cmake nlohmann-json
+
+# CocoaPods (Flutter iOS dependency manager)
+sudo gem install cocoapods
+
+# Verify environment
+flutter doctor
+```
+
+Make sure there are no errors in the iOS section of the `flutter doctor` output.
+
+---
+
+## 2. Project Architecture Overview
+
+The VoiceHub iOS App is composed of the following components:
+
+```text
+VoiceHub/
+├── voice_app/                          # Main Flutter project
+│   ├── lib/                            # Dart source code
+│   ├── ios/                            # iOS platform code
+│   │   ├── Runner.xcworkspace          # Xcode workspace (entry point)
+│   │   ├── Podfile                     # CocoaPods dependency configuration
+│   │   └── Runner/                     # App entry point & resources
+│   └── pubspec.yaml                    # Flutter dependencies declaration
+├── llama/                              # llama.cpp LLM module
+│   ├── csrc/                           # C++ source code (FFI interface)
+│   ├── build_ios.sh                    # iOS xcframework build script
+│   └── flutter/llamacpp_macos/
+│       ├── ios/                        # iOS plugin (podspec + xcframework)
+│       │   ├── llamacpp_macos.podspec
+│       │   ├── Classes/                # Force-link registration
+│       │   └── llamacpp_nmt.xcframework/
+│       └── lib/                        # Dart FFI bindings
+├── opus_mt/                            # opus-mt NMT module
+│   ├── csrc/                           # C++ source code (FFI interface)
+│   ├── build_ios.sh                    # iOS xcframework build script
+│   └── flutter/opus_mt_macos/
+│       ├── ios/                        # iOS plugin (podspec + xcframework)
+│       │   ├── opus_mt_macos.podspec
+│       │   ├── Classes/                # Force-link registration
+│       │   └── opus_mt.xcframework/
+│       └── lib/                        # Dart FFI bindings
+└── sherpa-onnx/                        # sherpa-onnx (ASR/TTS, iOS toolchain)
+    └── toolchains/
+        └── ios.toolchain.cmake         # iOS cross-compilation toolchain
+```
+
+### Key Points
+
+| Component | iOS Support Method | Library Type |
+|------|-------------|--------|
+| **sherpa-onnx** | Flutter Plugin (`sherpa_onnx_ios`) | xcframework |
+| **llama.cpp** | FFI Plugin (`llamacpp_macos`) — The same plugin supports macOS/iOS | `llamacpp_nmt.xcframework` |
+| **opus_mt** | FFI Plugin (`opus_mt_macos`) — The same plugin supports macOS/iOS | `opus_mt.xcframework` |
+
+> **Note:** Although `llamacpp_macos` and `opus_mt_macos` have `_macos` in their names, they both declare `ios: ffiPlugin: true`, thus they are also used as iOS plugins. On iOS, they are loaded using `DynamicLibrary.open('FrameworkName.framework/FrameworkName')`, and on macOS, they are loaded using `DynamicLibrary.open('lib*.dylib')`.
+
+---
+
+## 3. Compiling C++ Native Libraries (xcframework)
+
+If you modify the C++ code in `llama/csrc/`, `opus_mt/csrc/`, or `sherpa-onnx/sherpa-onnx/csrc/`, you need to recompile the iOS xcframework and copy it to the corresponding plugin directory.
+
+> **Note:** If you haven't modified the C++ code, you can skip this chapter and use the existing xcframeworks in the repository.
+
+### 3.1 Compiling llama.cpp
+
+The `llama.cpp` module is used for LLM translation and smart chat, supporting Metal GPU acceleration.
+
+```bash
+cd llama
+
+# Ensure the llama.cpp submodule is initialized
+git submodule update --init
+
+# Compile iOS xcframework (Device + Simulator)
+./build_ios.sh
+```
+
+**Output:** `llama/flutter/llamacpp_macos/ios/llamacpp_nmt.xcframework/`
+
+The script will automatically:
+1. Compile for `SIMULATOR64` (x86_64 simulator)
+2. Compile for `SIMULATORARM64` (Apple Silicon simulator)
+3. Compile for `OS64` (arm64 real device)
+4. Merge the simulator architectures into a universal binary using `lipo`
+5. Create a framework bundle and package it as an xcframework
+6. Automatically copy it to the Flutter plugin directory
+
+**Build Parameters Description:**
+
+| Parameter | Value | Description |
+|------|---|------|
+| `GGML_METAL` | `ON` | Enable Metal GPU acceleration |
+| `GGML_METAL_EMBED_LIBRARY` | `ON` | Embed Metal shader into the binary |
+| `GGML_OPENMP` | `OFF` | iOS does not support OpenMP, uses Accelerate instead |
+| `DEPLOYMENT_TARGET` | `14.0` | Minimum iOS version |
+
+### 3.2 Compiling opus_mt
+
+The `opus_mt` module is used for traditional NMT machine translation and depends on ONNX Runtime.
+
+```bash
+cd opus_mt
+
+# Compile iOS xcframework (Device + Simulator)
+./build_ios.sh
+```
+
+**Output:** `opus_mt/flutter/opus_mt_macos/ios/opus_mt.xcframework/`
+
+The script will automatically:
+1. Download the ONNX Runtime iOS static xcframework (v1.27.0) (skipped if it already exists)
+2. Compile for the three platforms
+3. Merge and package into an xcframework
+4. Automatically copy it to the Flutter plugin directory
+
+**Build Parameters Description:**
+
+| Parameter | Value | Description |
+|------|---|------|
+| `OPUS_MT_USE_SENTENCEPIECE` | `OFF` | iOS build does not depend on SentencePiece |
+| Environment Variable `OPUS_MT_ONNXRUNTIME_VERSION` | `1.27.0` | Overrides the ONNX Runtime version |
+
+### 3.3 Compiling sherpa-onnx
+
+The `sherpa-onnx` module is used for ASR (Automatic Speech Recognition) and TTS (Text-to-Speech), depending on ONNX Runtime. On iOS, it uses a **dynamic framework** (shared libs), which is different from the `libsherpa-onnx-c-api.dylib` on macOS.
+
+```bash
+cd sherpa-onnx
+
+# Compile iOS dynamic framework (Device + Simulator)
+./build-ios-shared.sh
+```
+
+**Output:** `sherpa-onnx/build-ios-shared/sherpa_onnx.xcframework/`
+
+The script will automatically:
+1. Download the ONNX Runtime iOS static xcframework (v1.27.0) (skipped if it already exists)
+2. Compile `libsherpa-onnx-c-api.dylib` for `SIMULATOR64`, `SIMULATORARM64`, and `OS64`
+3. Merge simulator architectures into a universal binary using `lipo`
+4. Create the `sherpa_onnx.framework` bundle (including `Info.plist`, signing, and install_name_tool fixes)
+5. Package it as an xcframework
+
+**Build Parameters Description:**
+
+| Parameter | Value | Description |
+|------|---|------|
+| `BUILD_SHARED_LIBS` | `ON` | iOS Flutter plugins require dynamic libraries |
+| `SHERPA_ONNX_ENABLE_TTS` | `ON` | Enable TTS support |
+| `SHERPA_ONNX_ENABLE_C_API` | `ON` | Enable C API (required for FFI bindings) |
+| `DEPLOYMENT_TARGET` | `13.0` | Minimum iOS version |
+
+> ⚠️ **CRITICAL:** The sherpa-onnx iOS plugin (`sherpa_onnx_ios`) is published via pub.dev. Even if your `pubspec.yaml` uses a local path dependency for `sherpa_onnx`, the CocoaPods plugin on iOS still loads from the **pub cache** (path: `~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-{version}/`), not from the local project directory.
+
+**After compiling, it must be manually copied to the pub cache:**
+
+```bash
+# Compile
+cd sherpa-onnx && ./build-ios-shared.sh
+
+# Copy to pub cache (replace version number accordingly)
+PUB_CACHE_DIR="$HOME/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4"
+rm -rf "$PUB_CACHE_DIR/ios/sherpa_onnx.xcframework"
+cp -R build-ios-shared/sherpa_onnx.xcframework "$PUB_CACHE_DIR/ios/"
+
+# Clean the Flutter build cache and recompile
+cd ../voice_app
+rm -rf build/ios/
+flutter build ios --debug
+```
+
+> If you don't clean `build/ios/`, Xcode may use the cached `XCFrameworkIntermediates`, resulting in the old framework still being packaged into the app.
+
+### 3.4 Coexistence of Static and Dynamic Libraries
+
+The `sherpa-onnx` repository provides two iOS build scripts:
+
+| Script | Artifact | Purpose |
+|------|------|------|
+| `build-ios.sh` | Static library `libsherpa-onnx.a` (xcframework) | Statically linked by the voice_engine module |
+| `build-ios-shared.sh` | Dynamic framework `sherpa_onnx.framework` (xcframework) | Dynamically loaded via Flutter plugin FFI |
+
+If you modified the C++ code, both scripts need to be run because the `voice_engine` module also depends on sherpa-onnx:
+
+```bash
+cd sherpa-onnx
+./build-ios.sh          # Static library for voice_engine
+./build-ios-shared.sh   # Dynamic framework for Flutter FFI plugin
+cd ../voice_engine
+./build_ios.sh          # voice_engine xcframework
+```
+
+---
+
+## 4. Building the Flutter iOS App
+
+### 4.1 Install Dependencies
+
+```bash
+cd voice_app
+
+# Get Flutter dependencies
+flutter pub get
+
+# Install CocoaPods dependencies
+cd ios
+pod install
+cd ..
+```
+
+### 4.2 Build Runner.app (Without Signing)
+
+Verify whether the project can compile successfully (Apple Developer account is not required):
+
+```bash
+flutter build ios --no-codesign
+```
+
+Output on successful build: `build/ios/iphoneos/Runner.app`
+
+### 4.3 Build Runner.app (Requires Signing)
+
+```bash
+flutter build ios
+```
+
+This command automatically handles code signing (requires configuration in Xcode first, see the next chapter).
+
+---
+
+## 5. Code Signing Configuration
+
+### 5.1 Automatic Signing (Recommended)
+
+```bash
+# Open project in Xcode
+cd voice_app
+open ios/Runner.xcworkspace
+```
+
+In Xcode:
+1. Select the **Runner** project in the left project navigator → **Runner** target
+2. Select the **Signing & Capabilities** tab
+3. Check **Automatically manage signing**
+4. Choose your Apple Developer account from the **Team** dropdown menu
+5. Ensure the **Bundle Identifier** is unique (e.g., `com.yourcompany.voiceApp`)
+
+### 5.2 Manual Signing (CI/Teams)
+
+If you need to manually configure the signing certificate and Provisioning Profile:
+
+1. Create an App ID and Profile in the [Apple Developer Portal](https://developer.apple.com/account/)
+2. Uncheck "Automatically manage signing" in the Xcode Signing & Capabilities tab
+3. Manually select the corresponding Provisioning Profile
+
+### 5.3 Configure Signing via Environment Variables (CI Friendly)
+
+Create or edit `ExportOptions.plist` in the `ios/Flutter/` directory:
+
+```bash
+cat > ios/ExportOptions.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store</string>
+    <key>teamID</key>
+    <string>YOUR_TEAM_ID</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <true/>
+</dict>
+</plist>
+EOF
+```
+
+---
+
+## 6. Packaging IPA
+
+### 6.1 IPA Export Methods
+
+| Command | Purpose | Target Audience |
+|------|------|---------|
+| `flutter build ipa` | App Store Submission | All users (via App Store) |
+| `flutter build ipa --export-method=ad-hoc` | Ad-Hoc Distribution | Registered devices (up to 100) |
+| `flutter build ipa --export-method=development` | Development Distribution | Development team member devices |
+| `flutter build ipa --export-method=enterprise` | Enterprise Internal Distribution | Internal company employees |
+
+### 6.2 Build App Store IPA
+
+```bash
+cd voice_app
+
+# Build IPA (default is --export-method=app-store)
+flutter build ipa
+```
+
+Output on successful build:
+
+```text
+build/ios/ipa/
+├── Runner.ipa              # IPA file
+├── ExportOptions.plist     # Export configuration
+└── ... (Symbol files, etc.)
+```
+
+### 6.3 Build Ad-Hoc IPA (For Testing Distribution)
+
+```bash
+cd voice_app
+flutter build ipa --export-method=ad-hoc
+```
+
+Ad-Hoc IPAs can be distributed via the following methods:
+- **Firebase App Distribution**
+- **TestFlight** (Recommended to upload directly using the App Store method)
+- **Pgyer / fir.im** (or other similar platforms)
+- **Drag directly into Apple Configurator** to install on a device
+
+### 6.4 View IPA Information
+
+```bash
+# Check IPA size
+ls -lh build/ios/ipa/Runner.ipa
+
+# Unzip to view contents (Optional)
+unzip -l build/ios/ipa/Runner.ipa
+```
+
+### 6.5 Summary of Build Options
+
+```bash
+# Combined build options
+flutter build ipa \
+  --export-method=app-store \     # Export method
+  --target=lib/main.dart \        # Entry file
+  --flavor=prod \                 # Flavor (if configured)
+  --dart-define=ENV=production \  # Compile-time environment variables
+  --release                       # Release mode (default)
+```
+
+---
+
+## 7. Deploying to Device
+
+### 7.1 Deploy Directly via USB/WiFi
+
+```bash
+# List connected devices
+flutter devices
+
+# Deploy to specific iOS device (WiFi connection example)
+flutter run -d 00008120-XXXX
+
+# Deploy using Release mode
+flutter run --release -d 00008120-XXXX
+```
+
+### 7.2 Deploy via Xcode
+
+```bash
+open ios/Runner.xcworkspace
+```
+
+In Xcode:
+1. Select the target device (your iPhone) at the top
+2. Press `Cmd+R` or click the ▶️ Run button
+
+### 7.3 Install via IPA
+
+**Method A — Using Apple Configurator:**
+1. Install [Apple Configurator](https://apps.apple.com/app/apple-configurator/id1037126344) on your Mac
+2. Connect your iPhone to the Mac
+3. Drag the IPA file into the device interface of Apple Configurator
+
+**Method B — Using `ideviceinstaller`:**
+```bash
+brew install ideviceinstaller
+ideviceinstaller install build/ios/ipa/voice_app.ipa
+```
+
+---
+
+## 8. Distributing to App Store
+
+### 8.1 Preparation
+
+1. **Apple Developer Program** membership ($99/year)
+2. Create an App record in [App Store Connect](https://appstoreconnect.apple.com/)
+3. Prepare the App icon, screenshots, description, and other metadata
+
+### 8.2 Uploading the IPA
+
+**Method A — Via Xcode:**
+
+```bash
+open ios/Runner.xcworkspace
+```
+
+Menu: **Product → Archive** → Select **Distribute App** in the pop-up Organizer window
+
+**Method B — Via Command Line (fastlane):**
+
+```bash
+# Install fastlane
+brew install fastlane
+
+# Build and upload
+flutter build ipa
+xcrun altool --upload-app \
+  --type ios \
+  --file build/ios/ipa/Runner.ipa \
+  --username "your@email.com" \
+  --password "app-specific-password"
+```
+
+> **Tip:** An app-specific password needs to be generated at [appleid.apple.com](https://appleid.apple.com/).
+
+**Method C — Via Transporter:**
+1. Install [Transporter](https://apps.apple.com/app/transporter/id1450874784) from the Mac App Store
+2. Drag `Runner.ipa` into Transporter
+3. Click **Deliver**
+
+### 8.3 Post-Upload
+
+1. Complete the App information in App Store Connect
+2. Submit for Review
+3. Publish once approved
+
+---
+
+## 9. Troubleshooting
+
+### 9.1 `pod install` Fails
+
+```bash
+# Clean CocoaPods cache and retry
+cd voice_app/ios
+rm -rf Pods Podfile.lock
+pod cache clean --all
+pod install
+```
+
+### 9.2 Signing Error: "Signing for Runner requires a development team"
+
+Open `ios/Runner.xcworkspace` in Xcode, and select a Team for the Runner target.
+
+### 9.3 Missing xcframework / Undefined Symbols
+
+Ensure that `build_ios.sh` for the respective modules has been run:
+
+```bash
+cd llama && ./build_ios.sh
+cd opus_mt && ./build_ios.sh
+```
+
+Then clear the Flutter cache and rebuild:
+
+```bash
+cd voice_app
+flutter clean
+flutter pub get
+cd ios && pod install && cd ..
+flutter build ios
+```
+
+### 9.4 sherpa-onnx C++ Modifications Not Taking Effect
+
+If you modified the code in `sherpa-onnx/sherpa-onnx/csrc/` but the iOS device is still running the old logic, check:
+
+1. **Ensure the correct build script was used:**
+   ```bash
+   cd sherpa-onnx && ./build-ios-shared.sh
+   ```
+   Dynamic frameworks require `build-ios-shared.sh`, not `build-ios.sh`.
+
+2. **Ensure the framework has been copied to the pub cache:**
+   ```bash
+   # Check the source path in the pub cache
+   strings ~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4/ios/sherpa_onnx.xcframework/ios-arm64/sherpa_onnx.framework/sherpa_onnx \
+     | grep "offline-tts-vits-model-config"
+   ```
+   - If it shows `/Users/runner/work/...` (CI path) → It means the old version from pub.dev is still being used, and needs to be re-copied.
+   - If it shows a local path (e.g., `/VoiceHub/...`) → The locally compiled version is in use.
+
+3. **Clean Xcode cache and rebuild:**
+   ```bash
+   cd voice_app
+   rm -rf build/ios/
+   flutter build ios --debug
+   ```
+
+4. **Full clean (Last resort):**
+   ```bash
+   cd voice_app
+   flutter clean
+   rm -rf ios/Pods ios/Podfile.lock
+   flutter pub get
+   cd ios && pod install && cd ..
+   flutter build ios --debug
+   ```
+
+### 9.5 Swift Package Manager Warnings
+
+```text
+The following plugins do not support Swift Package Manager for ios:
+  - audioplayers_darwin
+  - llamacpp_macos
+  - opus_mt_macos
+  - sherpa_onnx_ios
+```
+
+This is a non-fatal warning; plugins still work perfectly via CocoaPods. Future Flutter versions may require plugins to migrate to SPM, but it does not affect the build right now.
+
+### 9.6 Simulator vs Real Device Architecture Mismatch
+
+The xcframework already includes both `ios-arm64` (real device) and `ios-arm64_x86_64-simulator` (simulator) architectures. If you encounter architecture errors, verify:
+
+```bash
+# Check the architecture info of the xcframework
+xcodebuild -runFirstLaunch
+xcrun vtool -show-build llama/flutter/llamacpp_macos/ios/llamacpp_nmt.xcframework/ios-arm64/llamacpp_nmt.framework/llamacpp_nmt
+```
+
+### 9.7 Minimum iOS Version
+
+The project supports iOS 14.0 at minimum (defined in `ios/Podfile`). If you need to modify it:
+
+```ruby
+# ios/Podfile
+platform :ios, '14.0'   # Modify this line
+```
+
+Also, ensure consistency in Xcode under Runner target → General → Minimum Deployments.
+
+### 9.8 Build Fails with `Bitcode` Error
+
+The xcframeworks are compiled using `ENABLE_BITCODE=0`. Xcode 14+ has deprecated Bitcode. If your project does not need Bitcode, ensure in Xcode:
+
+- Runner target → Build Settings → **Enable Bitcode** = `NO`
+
+### 9.9 First Build is Very Slow
+
+The initial iOS build requires compiling the Flutter engine and all dependencies, which may take 5-15 minutes. Subsequent incremental builds will be much faster.
+
+---
+
+## Quick Reference
+
+```bash
+# ==== Complete Build Workflow ====
+
+# 1. Compile C++ Native Libraries (only needed after modifying C++ code)
+cd llama && ./build_ios.sh && cd ..
+cd opus_mt && ./build_ios.sh && cd ..
+cd sherpa-onnx && ./build-ios.sh && ./build-ios-shared.sh && cd ..
+
+# 1b. Copy sherpa-onnx dynamic framework to pub cache
+PUB_CACHE_DIR="$HOME/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-1.13.4"
+rm -rf "$PUB_CACHE_DIR/ios/sherpa_onnx.xcframework"
+cp -R sherpa-onnx/build-ios-shared/sherpa_onnx.xcframework "$PUB_CACHE_DIR/ios/"
+
+# 1c. If voice_engine or its dependent sherpa-onnx static library is modified
+cd voice_engine && ./build_ios.sh && cd ..
+
+# 2. Build the Flutter iOS App
+cd voice_app
+flutter clean
+flutter pub get
+cd ios && pod install && cd ..
+
+# 3. Build and Package
+flutter build ipa    # App Store
+# flutter build ipa --export-method=ad-hoc  # Ad-Hoc testing
+
+# 4. Output Location
+open build/ios/ipa/
+```
+
+---
+
+<h2 id="简体中文">🇨🇳 简体中文</h2>
+
 # iOS App 构建与打包指南
 
 本文档涵盖 VoiceHub Flutter 项目的完整 iOS 构建、签名、打包与分发流程。
@@ -190,7 +822,7 @@ cd sherpa-onnx
 | `SHERPA_ONNX_ENABLE_C_API` | `ON` | 启用 C API（FFI 绑定需要） |
 | `DEPLOYMENT_TARGET` | `13.0` | 最低 iOS 版本 |
 
-> ⚠️ **关键：** sherpa-onnx 的 iOS 插件 (`sherpa_onnx_ios`) 是通过 pub.dev 发布的。即使你的 `pubspec.yaml` 使用本地路径依赖 `sherpa_onnx`，iOS 的 CocoaPods 插件仍然从 **pub cache** 加载（路径：`~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-{version}/`），而非本地项目目录。
+> ⚠️ **关键：** sherpa-onnx 的 iOS 插件 (`sherpa_onnx_ios`) 是通过 pub.dev 发布的。即使你的 `pubspec.yaml` 使用本地路径依赖 `sherpa_onnx`, iOS 的 CocoaPods 插件仍然从 **pub cache** 加载（路径：`~/.pub-cache/hosted/pub.dev/sherpa_onnx_ios-{version}/`），而非本地项目目录。
 
 **编译后必须手动拷贝到 pub cache：**
 

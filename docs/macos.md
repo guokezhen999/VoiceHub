@@ -1,3 +1,325 @@
+<h2 id="english">🇬🇧 English</h2>
+
+# macOS App Build and Packaging Guide
+
+This document covers the complete macOS compilation, native dynamic library (`.dylib`) building, Flutter app packaging, and artifact distribution process for the VoiceHub Flutter project.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#1-prerequisites)
+2. [Project Architecture Overview](#2-project-architecture-overview)
+3. [Compile macOS C++ Native Dynamic Libraries (.dylib)](#3-compile-macos-c-native-dynamic-libraries-dylib)
+   - [3.1 One-Click Build for All Native Libraries](#31-one-click-build-for-all-native-libraries)
+   - [3.2 Module-Specific Compilation Guide](#32-module-specific-compilation-guide)
+   - [3.3 Dynamic Library Copying and @rpath Loading Path Processing](#33-dynamic-library-copying-and-rpath-loading-path-processing)
+4. [Build and Run Flutter macOS App](#4-build-and-run-flutter-macos-app)
+   - [4.1 Run in Development Environment](#41-run-in-development-environment)
+   - [4.2 Cache Clearing and Dependency Updates](#42-cache-clearing-and-dependency-updates)
+5. [Package Release App and Distribution Bundles](#5-package-release-app-and-distribution-bundles)
+   - [5.1 Build macOS .app Bundle](#51-build-macos-app-bundle)
+   - [5.2 Verify App Structure and Dynamic Library Packaging](#52-verify-app-structure-and-dynamic-library-packaging)
+   - [5.3 Compression and Archiving (ZIP / DMG)](#53-compression-and-archiving-zip--dmg)
+6. [Troubleshooting](#6-troubleshooting)
+
+---
+
+## 1. Prerequisites
+
+Before starting, please ensure your macOS system has correctly installed and configured the following basic development tools:
+
+```bash
+# 1. Install Xcode Command Line Tools
+xcode-select --install
+
+# 2. Install Homebrew package manager (if not installed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# 3. Install CMake and nlohmann-json via Homebrew (C++ native module dependencies)
+brew install cmake nlohmann-json libomp
+
+# 4. Install/Check Flutter SDK (Flutter >= 3.10.0 recommended)
+flutter doctor
+```
+
+Ensure both **macOS toolchain** and **Xcode** are normally prompted as enabled in `flutter doctor`.
+
+---
+
+## 2. Project Architecture Overview
+
+The VoiceHub macOS application consists of a Flutter frontend app and 5 core C++ native inference engine/algorithm modules:
+
+```
+VoiceHub/
+├── scripts/
+│   └── build_macos_all.sh             # One-click build & package script for macOS native libraries
+├── voice_app/                         # Main Flutter project
+│   ├── lib/                           # Dart UI and logic code
+│   ├── macos/                         # macOS native App configuration (Xcode project)
+│   └── build/macos/Build/Products/    # Final packaging output path
+├── sherpa-onnx/                       # ASR / TTS offline speech recognition and synthesis engine
+│   └── flutter/sherpa_onnx_macos/
+├── llama/                             # LLM machine translation module (based on llama.cpp)
+│   └── flutter/llamacpp_macos/
+├── opus_mt/                           # Opus-MT neural machine translation module
+│   └── flutter/opus_mt_macos/
+├── voice_engine/                      # Core voice processing pipeline engine
+│   └── flutter/voice_engine_macos/
+└── simulst/                           # Simultaneous Translation module
+    └── flutter/simulst_macos/
+```
+
+### Core Native Libraries and Flutter Plugins Mapping Table
+
+| Module Name | Generated Dynamic Library (`.dylib`) | Flutter Plugin Name | Corresponding Plugin Directory |
+|---|---|---|---|
+| **sherpa-onnx** | `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib` | `sherpa_onnx` (`sherpa_onnx_macos`) | `sherpa-onnx/flutter/sherpa_onnx_macos` |
+| **llama** | `libllamacpp_nmt.dylib`, `libomp.dylib` | `llamacpp_macos` | `llama/flutter/llamacpp_macos` |
+| **opus_mt** | `libopus_mt.dylib` | `opus_mt_macos` | `opus_mt/flutter/opus_mt_macos` |
+| **voice_engine** | `libvoice_engine.dylib` | `voice_engine_macos` | `voice_engine/flutter/voice_engine_macos` |
+| **simulst** | `libsimulst.dylib`, `libkaldi-native-fbank-core.dylib` | `simulst_macos` | `simulst/flutter/simulst_macos` |
+
+---
+
+## 3. Compile macOS C++ Native Dynamic Libraries (.dylib)
+
+Before packaging or running the Flutter macOS application, you must compile the C++ native source code into `.dylib` dynamic libraries usable on the macOS platform, and embed them into the `macos/` directory of each Flutter plugin.
+
+### 3.1 One-Click Build for All Native Libraries
+
+VoiceHub provides a root directory script to automatically complete the compilation and copying of the 5 modules with one click:
+
+```bash
+# Grant execution permissions
+chmod +x scripts/build_macos_all.sh
+
+# Compile Release version (Recommended, better inference performance)
+./scripts/build_macos_all.sh release
+
+# Or compile Debug version
+./scripts/build_macos_all.sh debug
+```
+
+### 3.2 Module-Specific Compilation Guide
+
+If you need to modify the code of a single module and compile it separately, you can do so by following the commands below.
+
+> [!NOTE]
+> Inter-module dependency tip: `voice_engine` and `simulst` depend on the C-API header files and dynamic libraries exported by `sherpa-onnx` and `llama`. If you want to compile `voice_engine` or `simulst` separately, please make sure `sherpa-onnx` and `llama` have been compiled first.
+
+#### (1) Compile sherpa-onnx
+```bash
+cd sherpa-onnx
+mkdir -p build && cd build
+cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=release
+cmake --build . --config release -j$(sysctl -n hw.logicalcpu)
+cmake --install . --config release
+
+# Copy the generated dynamic libraries to the macOS Flutter plugin path
+mkdir -p ../flutter/sherpa_onnx_macos/macos/
+cp lib/libsherpa-onnx-c-api.dylib ../flutter/sherpa_onnx_macos/macos/
+cp _deps/onnxruntime-build/lib/libonnxruntime.dylib ../flutter/sherpa_onnx_macos/macos/
+```
+
+#### (2) Compile llama.cpp
+```bash
+cd llama
+# Ensure the llama.cpp submodule has been cloned correctly (to llama/llama.cpp)
+./build_macos.sh release
+# The build artifacts libllamacpp_nmt.dylib and libomp.dylib will automatically fix @rpath and be copied to:
+# flutter/llamacpp_macos/macos/
+```
+
+#### (3) Compile opus_mt
+```bash
+cd opus_mt
+./build_macos.sh release
+# Automatically/manually copy artifacts to plugin path:
+mkdir -p flutter/opus_mt_macos/macos/
+cp build/libopus_mt.dylib flutter/opus_mt_macos/macos/
+```
+
+#### (4) Compile voice_engine
+```bash
+cd voice_engine
+./build_macos.sh release
+# Automatically links sherpa-onnx and copies to:
+# flutter/voice_engine_macos/macos/libvoice_engine.dylib
+```
+
+#### (5) Compile simulst
+```bash
+cd simulst
+./build_macos.sh release
+# Automatically compiles and copies to:
+# flutter/simulst_macos/macos/libsimulst.dylib
+```
+
+### 3.3 Dynamic Library Copying and @rpath Loading Path Processing
+
+To ensure the packaged App can correctly find and load dependencies (e.g., `libomp.dylib` or `libsherpa-onnx-c-api.dylib`) when running on any macOS device, the build script uses the `install_name_tool` utility to change absolute paths to `@rpath` relative loading paths. For example:
+
+```bash
+# Example: Change the dependency path of libvoice_engine.dylib on sherpa-onnx
+install_name_tool -change "/absolute/path/libsherpa-onnx-c-api.dylib" \
+                        "@rpath/libsherpa-onnx-c-api.dylib" \
+                        "libvoice_engine.dylib"
+```
+
+---
+
+## 4. Build and Run Flutter macOS App
+
+Once the native dynamic libraries are ready, you can debug and run the Flutter application under the `voice_app` directory.
+
+### 4.1 Run in Development Environment
+
+```bash
+cd voice_app
+
+# Start the macOS native app for testing
+flutter run -d macos
+```
+
+### 4.2 Cache Clearing and Dependency Updates
+
+If Xcode still loads older versions of libraries after recompiling the `.dylib`s, you can perform a Flutter and Xcode cache cleanup:
+
+```bash
+cd voice_app
+
+# Clear Flutter build cache
+flutter clean
+
+# Fetch dependencies again
+flutter pub get
+
+# Run again
+flutter run -d macos
+```
+
+---
+
+## 5. Package Release App and Distribution Bundles
+
+### 5.1 Build macOS .app Bundle
+
+Use the following command to build the Release version:
+
+```bash
+cd voice_app
+flutter build macos --release
+```
+
+After building, the compilation artifacts are stored in:
+`voice_app/build/macos/Build/Products/Release/Voice Hub.app`
+
+### 5.2 Verify App Structure and Dynamic Library Packaging
+
+Upon successful build, you can check the `Contents/Frameworks` directory inside the `.app` bundle to confirm all native dynamic libraries have been successfully packaged into the App:
+
+```bash
+ls -la "voice_app/build/macos/Build/Products/Release/Voice Hub.app/Contents/Frameworks"
+```
+
+The complete list of dynamic libraries included in the package should look like this:
+- `App.framework`
+- `FlutterMacOS.framework`
+- `libcargs.dylib`
+- `libkaldi-native-fbank-core.dylib`
+- `libllamacpp_nmt.dylib`
+- `libomp.dylib`
+- `libonnxruntime.dylib`
+- `libopus_mt.dylib`
+- `libsherpa-onnx-c-api.dylib`
+- `libsherpa-onnx-cxx-api.dylib`
+- `libsimulst.dylib`
+- `libvoice_engine.dylib`
+
+### 5.3 Compression and Archiving (ZIP / DMG)
+
+For distribution and publishing, you can use ZIP archives or standard macOS DMG disk images:
+
+#### (1) Package ZIP Archive (Fast, Cross-platform extraction)
+Use macOS's `ditto` tool for compression (preserves macOS resource metadata):
+
+```bash
+cd voice_app/build/macos/Build/Products/Release
+
+# Package ZIP
+ditto -c -k --sequesterRsrc "Voice Hub.app" "VoiceHub-macOS.zip"
+```
+
+#### (2) Package DMG Disk Image (Standard macOS installation experience)
+
+##### Option A: Using macOS built-in command `hdiutil` (Zero dependencies, ready to use)
+Includes a `/Applications` symlink for convenient drag-and-drop installation:
+
+```bash
+cd voice_app/build/macos/Build/Products/Release
+
+# Create a temporary directory structure and package DMG
+mkdir -p DMG_Folder
+cp -R "Voice Hub.app" DMG_Folder/
+ln -s /Applications DMG_Folder/Applications
+hdiutil create -volname "VoiceHub" -srcfolder DMG_Folder -ov -format UDZO "VoiceHub-macOS.dmg"
+rm -rf DMG_Folder
+```
+
+##### Option B: Using `create-dmg` (Recommended, supports icons and visual drag-and-drop layout)
+Generates a polished DMG with background layout, custom icons, and application drag-and-drop indicators:
+
+```bash
+# 1. Install create-dmg
+brew install create-dmg
+
+# 2. Generate customized beautiful DMG
+create-dmg \
+  --volname "VoiceHub" \
+  --volicon "Voice Hub.app/Contents/Resources/AppIcon.icns" \
+  --window-pos 200 120 \
+  --window-size 600 400 \
+  --icon-size 100 \
+  --icon "Voice Hub.app" 175 190 \
+  --hide-extension "Voice Hub.app" \
+  --app-drop-link 425 190 \
+  "VoiceHub-macOS.dmg" \
+  "Voice Hub.app"
+```
+
+---
+
+## 6. Troubleshooting
+
+### Q1: Xcode compilation prompts `library not found` or loads old `.dylib`
+* **Reason**: Xcode DerivedData cache is causing the latest dynamic library files not to be loaded.
+* **Solution**:
+  ```bash
+  cd voice_app
+  flutter clean
+  rm -rf macos/Pods/
+  flutter pub get
+  ```
+
+### Q2: Running or starting prompts `dyld: Library not loaded: @rpath/...`
+* **Reason**: The dynamic library's install_name is not set to `@rpath`, or the plugin's Frameworks copying phase did not include the `.dylib`.
+* **Solution**:
+  Ensure you compile using `./scripts/build_macos_all.sh release`; the script automatically uses `install_name_tool` to fix the `@rpath` path.
+
+### Q3: Prompt `Swift Package Manager` does not support certain plugins warning
+* **Symptom**: Flutter build output displays `The following plugins do not support Swift Package Manager for macos...`
+* **Explanation**: This is a warning prompt as Flutter progressively deprecates CocoaPods in favor of SPM. It currently does not affect CocoaPods build packaging and can be safely ignored.
+
+### Q4: Prompt `ld: warning: ignoring file ... found architecture 'arm64', required architecture 'x86_64'`
+* **Reason**: The `.dylib` compiled on Apple Silicon (M-series chips) is the `arm64` architecture, while Xcode tries to build universal binaries (Universal / x86_64).
+* **Explanation**: Apple Silicon Macs can natively run `arm64` architecture `.app`s. If you need to distribute Intel (x86_64) applications, you need to use `x86_64` or Universal binary (`lipo`) cross-compilation toolchains when compiling the underlying `.dylib`s.
+
+---
+
+<h2 id="简体中文">🇨🇳 简体中文</h2>
+
 # macOS App 构建与打包指南
 
 本文档涵盖 VoiceHub Flutter 项目的完整 macOS 编译、原生动态库（`.dylib`）构建、Flutter 应用打包与产物分发流程。
