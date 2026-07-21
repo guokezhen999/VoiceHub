@@ -13,6 +13,13 @@ DynamicLibrary loadSimulstLibrary() {
   if (Platform.isMacOS) {
     return DynamicLibrary.open('libsimulst.dylib');
   }
+  if (Platform.isIOS) {
+    try {
+      return DynamicLibrary.open('simulst.framework/simulst');
+    } catch (_) {
+      return DynamicLibrary.process();
+    }
+  }
   if (Platform.isAndroid || Platform.isLinux) {
     return DynamicLibrary.open('libsimulst.so');
   }

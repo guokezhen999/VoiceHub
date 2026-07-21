@@ -1391,20 +1391,20 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: [
-            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
-            const SizedBox(width: 8),
-            const Text('确认清理历史记录', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 8),
+            Text('Confirm Clear History', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: Text(
-          '确定要清理【${mode.title}】的历史记录缓存吗？\n清理后所有相关会话与音频文件将被删除，且无法恢复。',
-          style: const TextStyle(fontSize: 14, color: Color(0xFF4A5568)),
+          'Are you sure you want to clear history for "${mode.title}"?\nAll associated sessions and audio files will be permanently deleted.',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1412,7 +1412,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认清理', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text('Clear', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1424,7 +1424,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('已成功清理【${mode.title}】的历史记录缓存'),
+            content: Text('Cleared history cache for "${mode.title}"'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -1438,20 +1438,20 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: [
-            const Icon(Icons.delete_forever_rounded, color: Colors.redAccent, size: 26),
-            const SizedBox(width: 8),
-            const Text('确认清理全部历史', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          children: const [
+            Icon(Icons.delete_forever_rounded, color: Colors.redAccent, size: 26),
+            SizedBox(width: 8),
+            Text('Confirm Clear All', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ],
         ),
         content: const Text(
-          '确定要清理所有模式的历史记录缓存吗？\n此操作将清空所有模式下的记录与文件，且无法撤销。',
-          style: TextStyle(fontSize: 14, color: Color(0xFF4A5568)),
+          'Are you sure you want to clear history for all modes?\nAll sessions and files across all modes will be permanently deleted.',
+          style: TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1459,7 +1459,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('确认清理全部', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            child: const Text('Clear All', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1471,7 +1471,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('已成功清理所有模式的历史记录缓存'),
+            content: Text('Cleared history caches for all modes'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -1504,19 +1504,18 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
-                      onPressed: widget.onBack,
-                    ),
-                    const Text(
-                      'Cache Statistics (缓存信息统计)',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-                    ),
-                  ],
+                IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                  onPressed: widget.onBack,
+                ),
+                const Expanded(
+                  child: Text(
+                    'Cache Statistics',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close_rounded),
@@ -1555,17 +1554,16 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: const [
-                Icon(Icons.inventory_2_rounded, color: Color(0xFF1E3C72), size: 20),
-                SizedBox(width: 8),
-                Text(
-                  '模型缓存统计 (Model Cache)',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-                ),
-              ],
+            const Icon(Icons.inventory_2_rounded, color: Color(0xFF1E3C72), size: 20),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Model Cache Statistics',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             TextButton.icon(
               onPressed: () {
@@ -1581,7 +1579,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                 );
               },
               icon: const Icon(Icons.tune_rounded, size: 16),
-              label: const Text('模型管理', style: TextStyle(fontSize: 12)),
+              label: const Text('Model Manager', style: TextStyle(fontSize: 12)),
             ),
           ],
         ),
@@ -1599,7 +1597,15 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('已下载模型总计', style: TextStyle(fontSize: 13, color: Color(0xFF718096))),
+                  const Flexible(
+                    child: Text(
+                      'Total Installed Models',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF718096)),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
@@ -1607,7 +1613,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      '$totalCount 个模型 · $totalSizeStr',
+                      '$totalCount models · $totalSizeStr',
                       style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2B6CB0)),
                     ),
                   ),
@@ -1627,10 +1633,13 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                             child: Text(
                               d.title,
                               style: const TextStyle(fontSize: 13, color: Color(0xFF2D3748)),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          const SizedBox(width: 8),
                           Text(
-                            '${d.count} 个 · ${CacheStatisticsService.formatBytes(d.sizeInBytes)}',
+                            '${d.count} models · ${CacheStatisticsService.formatBytes(d.sizeInBytes)}',
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5568)),
                           ),
                         ],
@@ -1639,7 +1648,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
               ] else ...[
                 const SizedBox(height: 8),
                 const Text(
-                  '暂无已下载模型',
+                  'No downloaded models',
                   style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
               ],
@@ -1650,40 +1659,53 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
     );
   }
 
+  void _showModeItemsBottomSheet(ModeCacheInfo mode) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _ModeDetailSheet(
+        mode: mode,
+        onItemsChanged: () async {
+          await _loadCacheData();
+        },
+      ),
+    );
+  }
+
   Widget _buildModeHistoryCacheSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Row(
-              children: const [
-                Icon(Icons.history_rounded, color: Color(0xFF1E3C72), size: 20),
-                SizedBox(width: 8),
-                Text(
-                  '各个模式历史记录缓存',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
-                ),
-              ],
+            const Icon(Icons.history_rounded, color: Color(0xFF1E3C72), size: 20),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Mode History Cache',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             if (_modeCaches.isNotEmpty)
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.redAccent,
                   side: const BorderSide(color: Colors.redAccent, width: 1),
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
                 onPressed: _confirmAndClearAllHistories,
                 icon: const Icon(Icons.delete_sweep_rounded, size: 16),
-                label: const Text('一键清理全部', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                label: const Text('Clear All', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
               ),
           ],
         ),
         const SizedBox(height: 4),
         const Text(
-          '仅显示存在缓存数据的模式（无缓存数据不显示）',
+          'Only modes with cached data are shown (click Details to view & delete individual items)',
           style: TextStyle(fontSize: 11, color: Colors.grey),
         ),
         const SizedBox(height: 12),
@@ -1701,7 +1723,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                 Icon(Icons.cleaning_services_rounded, size: 40, color: Colors.grey),
                 SizedBox(height: 8),
                 Text(
-                  '暂无历史记录缓存',
+                  'No history cache available',
                   style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
                 ),
               ],
@@ -1723,7 +1745,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.02),
+                      color: Colors.black.withValues(alpha: 0.02),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -1734,7 +1756,7 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: mode.color.withOpacity(0.1),
+                        color: mode.color.withValues(alpha: 0.1),
                         shape: BoxShape.circle,
                       ),
                       child: Icon(mode.icon, color: mode.color, size: 20),
@@ -1747,18 +1769,31 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
                           Text(
                             mode.title,
                             style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${mode.count} 条记录 · ${CacheStatisticsService.formatBytes(mode.sizeInBytes)}',
+                            '${mode.count} records · ${CacheStatisticsService.formatBytes(mode.sizeInBytes)}',
                             style: const TextStyle(fontSize: 12, color: Color(0xFF718096), fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ],
                       ),
                     ),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF1E3C72),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      ),
+                      onPressed: () => _showModeItemsBottomSheet(mode),
+                      icon: const Icon(Icons.format_list_bulleted_rounded, size: 16),
+                      label: const Text('Details', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                    ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
-                      tooltip: '清理【${mode.title}】缓存',
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                      tooltip: 'Clear history for ${mode.title}',
                       onPressed: () => _confirmAndClearMode(mode),
                     ),
                   ],
@@ -1767,6 +1802,226 @@ class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
             },
           ),
       ],
+    );
+  }
+}
+
+class _ModeDetailSheet extends StatefulWidget {
+  final ModeCacheInfo mode;
+  final VoidCallback onItemsChanged;
+
+  const _ModeDetailSheet({
+    required this.mode,
+    required this.onItemsChanged,
+  });
+
+  @override
+  State<_ModeDetailSheet> createState() => _ModeDetailSheetState();
+}
+
+class _ModeDetailSheetState extends State<_ModeDetailSheet> {
+  bool _loading = true;
+  List<ModeSessionItem> _items = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadItems();
+  }
+
+  Future<void> _loadItems() async {
+    setState(() => _loading = true);
+    final list = await CacheStatisticsService.getModeSessionItems(widget.mode.key);
+    if (mounted) {
+      setState(() {
+        _items = list;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _confirmAndDeleteItem(ModeSessionItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 8),
+            Text('Confirm Delete', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to delete session "${item.title}"?\nThis record and its associated files will be permanently removed.',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF4A5568)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await CacheStatisticsService.deleteSessionItem(widget.mode.key, item.id);
+      await _loadItems();
+      widget.onItemsChanged();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deleted record: ${item.title}'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatDateTime(DateTime dt) {
+    final local = dt.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
+
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                onPressed: () => Navigator.pop(context),
+              ),
+              Expanded(
+                child: Text(
+                  'History Details - ${widget.mode.title}',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Total ${_items.length} records. Click delete icon to remove individually.',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _items.isEmpty
+                    ? Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.inbox_rounded, size: 48, color: Colors.grey),
+                            SizedBox(height: 8),
+                            Text('No history records found in this mode', style: TextStyle(fontSize: 13, color: Colors.grey)),
+                          ],
+                        ),
+                      )
+                    : ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: _items.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF7FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: widget.mode.color.withValues(alpha: 0.1),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(widget.mode.icon, color: widget.mode.color, size: 18),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.title,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item.subtitle,
+                                        style: const TextStyle(fontSize: 11, color: Color(0xFF4A5568)),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Updated: ${_formatDateTime(item.updatedAt)}',
+                                        style: const TextStyle(fontSize: 10, color: Colors.grey),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                                  tooltip: 'Delete Record',
+                                  onPressed: () => _confirmAndDeleteItem(item),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1800,7 +2055,37 @@ class _AboutSettingsSheet extends StatelessWidget {
     },
     {
       'name': 'onnxruntime',
-      'description': 'Microsoft high-performance cross-platform machine learning inference engine',
+      'description': 'Microsoft high-performance cross-platform machine learning engine powering sherpa-onnx & VAD',
+      'license': 'MIT',
+    },
+    {
+      'name': 'espeak-ng',
+      'description': 'Open-source text-to-speech phonemizer used by sherpa-onnx for VITS & MeloTTS synthesis',
+      'license': 'GPL-3.0',
+    },
+    {
+      'name': 'Silero VAD',
+      'description': 'Pre-trained enterprise-grade voice activity detector for speech boundary detection',
+      'license': 'MIT',
+    },
+    {
+      'name': 'piper-phonemize',
+      'description': 'Fast phonemization library used by sherpa-onnx for speech synthesis token generation',
+      'license': 'MIT',
+    },
+    {
+      'name': 'Kaldi / K2 / Kaldifeat',
+      'description': 'Speech recognition algorithms, FST tools, and feature extraction framework',
+      'license': 'Apache-2.0',
+    },
+    {
+      'name': 'SentencePiece',
+      'description': 'Unsupervised text tokenizer & detokenizer for neural machine translation',
+      'license': 'Apache-2.0',
+    },
+    {
+      'name': 'Opus-MT / MarianMT',
+      'description': 'Fast neural machine translation framework and pre-trained translation models',
       'license': 'MIT',
     },
     {
@@ -1809,13 +2094,8 @@ class _AboutSettingsSheet extends StatelessWidget {
       'license': 'MIT',
     },
     {
-      'name': 'Silero VAD',
-      'description': 'Pre-trained enterprise-grade voice activity detector',
-      'license': 'MIT',
-    },
-    {
-      'name': 'Opus-MT / MarianMT',
-      'description': 'Fast neural machine translation framework and models',
+      'name': 'ggml',
+      'description': 'C/C++ machine learning tensor library powering llama.cpp backend',
       'license': 'MIT',
     },
     {
@@ -1829,18 +2109,23 @@ class _AboutSettingsSheet extends StatelessWidget {
       'license': 'MIT',
     },
     {
+      'name': 'file_picker',
+      'description': 'Cross-platform native file picker library for desktop and mobile',
+      'license': 'MIT',
+    },
+    {
       'name': 'flutter_markdown',
       'description': 'Markdown renderer for Flutter supporting GitHub Flavored Markdown',
       'license': 'BSD-3-Clause',
     },
     {
       'name': 'archive',
-      'description': 'Dart library for zip, tar, gzip compression and extraction',
+      'description': 'Dart library for zip, tar, gzip compression and model extraction',
       'license': 'MIT',
     },
     {
       'name': 'path_provider & path',
-      'description': 'Flutter filesystem path location utilities and path manipulations',
+      'description': 'Flutter filesystem path location utilities and directory locators',
       'license': 'BSD-3-Clause',
     },
     {

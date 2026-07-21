@@ -34,8 +34,14 @@ cd "${ROOT_DIR}/opus_mt"
 
 # 4. Build voice_engine for iOS
 echo ""
-echo "---> [4/4] Building voice_engine for iOS..."
+echo "---> [4/5] Building voice_engine for iOS..."
 cd "${ROOT_DIR}/voice_engine"
+./build_ios.sh
+
+# 5. Build simulst for iOS
+echo ""
+echo "---> [5/5] Building simulst for iOS..."
+cd "${ROOT_DIR}/simulst"
 ./build_ios.sh
 
 echo ""

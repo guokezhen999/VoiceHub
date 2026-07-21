@@ -29,6 +29,22 @@ class ModeCacheInfo {
   bool get hasCache => count > 0 || sizeInBytes > 0;
 }
 
+class ModeSessionItem {
+  final String id;
+  final String title;
+  final String subtitle;
+  final DateTime updatedAt;
+  final String? audioPath;
+
+  ModeSessionItem({
+    required this.id,
+    required this.title,
+    required this.subtitle,
+    required this.updatedAt,
+    this.audioPath,
+  });
+}
+
 class ModelTypeCacheInfo {
   final String type;
   final String title;
@@ -71,27 +87,27 @@ class CacheStatisticsService {
     final types = [
       {
         'type': 'asr',
-        'title': '语音识别 (ASR)',
+        'title': 'ASR',
         'icon': Icons.mic_rounded,
       },
       {
         'type': 'tts',
-        'title': '语音合成 (TTS)',
+        'title': 'TTS',
         'icon': Icons.record_voice_over_rounded,
       },
       {
         'type': 'nmt',
-        'title': '文本翻译 (NMT)',
+        'title': 'NMT',
         'icon': Icons.translate_rounded,
       },
       {
         'type': 'llm',
-        'title': '大语言模型 (LLM)',
+        'title': 'LLM',
         'icon': Icons.psychology_rounded,
       },
       {
         'type': 'simulst',
-        'title': '同传大模型 (SimulST)',
+        'title': 'SimulST',
         'icon': Icons.graphic_eq_rounded,
       },
     ];
@@ -136,8 +152,8 @@ class CacheStatisticsService {
     if (audioFileItems.isNotEmpty || audioFileSize > 0) {
       list.add(ModeCacheInfo(
         key: 'audio_file',
-        title: '音频文件转写',
-        subtitle: '音视频长文件转写与翻译历史',
+        title: 'Audio File Transcription',
+        subtitle: 'Long audio/video transcription & translation history',
         icon: Icons.audio_file_rounded,
         color: const Color(0xFF4A90E2),
         count: audioFileItems.length,
@@ -151,8 +167,8 @@ class CacheStatisticsService {
     if (cascadeItems.isNotEmpty || cascadeSize > 0) {
       list.add(ModeCacheInfo(
         key: 'cascade',
-        title: '串行同传',
-        subtitle: '语音识别+文本翻译串行同传历史',
+        title: 'Cascade Interpretation',
+        subtitle: 'ASR + MT cascade translation history',
         icon: Icons.subtitles_rounded,
         color: const Color(0xFF9B51E0),
         count: cascadeItems.length,
@@ -166,8 +182,8 @@ class CacheStatisticsService {
     if (simulstItems.isNotEmpty || simulstSize > 0) {
       list.add(ModeCacheInfo(
         key: 'simulst',
-        title: '端到端同传',
-        subtitle: '端到端语音大模型同传历史',
+        title: 'End-to-End Interpretation',
+        subtitle: 'Speech LLM simultaneous translation history',
         icon: Icons.graphic_eq_rounded,
         color: const Color(0xFF27AE60),
         count: simulstItems.length,
@@ -181,8 +197,8 @@ class CacheStatisticsService {
     if (dualItems.isNotEmpty || dualSize > 0) {
       list.add(ModeCacheInfo(
         key: 'dual_dialogue',
-        title: '双人对话',
-        subtitle: '双向实时对话翻译历史',
+        title: 'Dual Dialogue',
+        subtitle: 'Two-way real-time dialogue history',
         icon: Icons.forum_rounded,
         color: const Color(0xFFF2994A),
         count: dualItems.length,
@@ -196,8 +212,8 @@ class CacheStatisticsService {
     if (chatItems.isNotEmpty || chatSize > 0) {
       list.add(ModeCacheInfo(
         key: 'chat',
-        title: 'AI 问答助手',
-        subtitle: '大语言模型智能对话历史',
+        title: 'AI Chat Assistant',
+        subtitle: 'LLM intelligent conversation history',
         icon: Icons.smart_toy_rounded,
         color: const Color(0xFFEB5757),
         count: chatItems.length,
@@ -234,5 +250,97 @@ class CacheStatisticsService {
     await SimulstHistoryStore.clearAll();
     await DualDialogueHistoryStore.clearAll();
     await ChatHistoryStore.clearAll();
+  }
+
+  static Future<List<ModeSessionItem>> getModeSessionItems(String modeKey) async {
+    final List<ModeSessionItem> items = [];
+
+    if (modeKey == 'audio_file') {
+      final list = await AudioFileHistoryStore.list();
+      for (final e in list) {
+        final name = e.fileName.isNotEmpty ? e.fileName : 'Untitled Audio Transcription';
+        final detail = '${e.sourceLang.toUpperCase()} ➔ ${e.targetLang.toUpperCase()} · ${e.duration.toStringAsFixed(1)}s · ${e.segmentCount} segments';
+        items.add(ModeSessionItem(
+          id: e.id,
+          title: name,
+          subtitle: detail,
+          updatedAt: e.updatedAt,
+          audioPath: e.audioPath,
+        ));
+      }
+    } else if (modeKey == 'cascade') {
+      final list = await CascadeHistoryStore.list();
+      for (final e in list) {
+        final name = e.fileName.isNotEmpty ? e.fileName : 'Cascade Session';
+        final detail = '${e.sourceLang.toUpperCase()} ➔ ${e.targetLang.toUpperCase()} · ${e.duration.toStringAsFixed(1)}s · ${e.segmentCount} segments';
+        items.add(ModeSessionItem(
+          id: e.id,
+          title: name,
+          subtitle: detail,
+          updatedAt: e.updatedAt,
+          audioPath: e.audioPath,
+        ));
+      }
+    } else if (modeKey == 'simulst') {
+      final list = await SimulstHistoryStore.list();
+      for (final e in list) {
+        final name = e.fileName.isNotEmpty ? e.fileName : 'End-to-End Session';
+        final detail = '${e.sourceLang.toUpperCase()} ➔ ${e.targetLang.toUpperCase()} · ${e.duration.toStringAsFixed(1)}s · ${e.segmentCount} segments';
+        items.add(ModeSessionItem(
+          id: e.id,
+          title: name,
+          subtitle: detail,
+          updatedAt: e.updatedAt,
+          audioPath: e.audioPath,
+        ));
+      }
+    } else if (modeKey == 'dual_dialogue') {
+      final list = await DualDialogueHistoryStore.list();
+      for (final e in list) {
+        final name = e.title.isNotEmpty ? e.title : 'Dual Dialogue Session';
+        final detail = '${e.langA} ↔ ${e.langB} · ${e.turnCount} turns';
+        items.add(ModeSessionItem(
+          id: e.id,
+          title: name,
+          subtitle: detail,
+          updatedAt: e.updatedAt,
+          audioPath: e.audioPath,
+        ));
+      }
+    } else if (modeKey == 'chat') {
+      final list = await ChatHistoryStore.list();
+      for (final e in list) {
+        final name = e.firstUserMessage.isNotEmpty ? e.firstUserMessage : 'AI Chat Session';
+        final detail = '${e.modelName ?? "LLM"} · ${e.messageCount} msgs';
+        items.add(ModeSessionItem(
+          id: e.id,
+          title: name,
+          subtitle: detail,
+          updatedAt: e.updatedAt,
+        ));
+      }
+    }
+
+    return items;
+  }
+
+  static Future<void> deleteSessionItem(String modeKey, String id) async {
+    switch (modeKey) {
+      case 'audio_file':
+        await AudioFileHistoryStore.delete(id);
+        break;
+      case 'cascade':
+        await CascadeHistoryStore.delete(id);
+        break;
+      case 'simulst':
+        await SimulstHistoryStore.delete(id);
+        break;
+      case 'dual_dialogue':
+        await DualDialogueHistoryStore.delete(id);
+        break;
+      case 'chat':
+        await ChatHistoryStore.delete(id);
+        break;
+    }
   }
 }
