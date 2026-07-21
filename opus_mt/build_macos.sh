@@ -122,21 +122,21 @@ if [ -f "${BUILD_DIR}/libopus_mt.dylib" ]; then
   # Fix ONNX Runtime dependency to use @rpath if it was linked against
   # a Homebrew absolute path. This ensures the dylib finds the bundled
   # libonnxruntime.dylib at runtime instead of requiring a system install.
-  ONNX_RUNTIME_LOAD=$(otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libonnxruntime" | head -1 | sed 's/ (.*//' | xargs)
+  ONNX_RUNTIME_LOAD=$(otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libonnxruntime" | head -1 | sed 's/ (.*//' | xargs || true)
   if [[ "${ONNX_RUNTIME_LOAD}" == /opt/homebrew/* ]] || [[ "${ONNX_RUNTIME_LOAD}" == /usr/local/* ]]; then
     echo ""
     echo "Warning: ONNX Runtime linked via absolute path: ${ONNX_RUNTIME_LOAD}"
     echo "Fixing to @rpath/libonnxruntime.dylib ..."
     install_name_tool -change "${ONNX_RUNTIME_LOAD}" "@rpath/libonnxruntime.dylib" "${BUILD_DIR}/libopus_mt.dylib"
     echo "Fixed. New dependency:"
-    otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libonnxruntime"
+    otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libonnxruntime" || true
   else
     echo "ONNX Runtime load path OK: ${ONNX_RUNTIME_LOAD}"
   fi
 
   # Fix SentencePiece dependency to use @rpath as well.
   # The Flutter app bundles libsentencepiece.dylib in its Frameworks directory.
-  SPM_LOAD=$(otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libsentencepiece" | head -1 | sed 's/ (.*//' | xargs)
+  SPM_LOAD=$(otool -L "${BUILD_DIR}/libopus_mt.dylib" | grep "libsentencepiece" | head -1 | sed 's/ (.*//' | xargs || true)
   if [[ -n "${SPM_LOAD}" ]] && { [[ "${SPM_LOAD}" == /opt/homebrew/* ]] || [[ "${SPM_LOAD}" == /usr/local/* ]]; }; then
     echo ""
     echo "Warning: SentencePiece linked via absolute path: ${SPM_LOAD}"

@@ -9,6 +9,7 @@ import 'package:voice_app/services/nmt_service_common.dart';
 import 'package:voice_app/services/tts_service.dart';
 import 'package:voice_app/ui/widgets/chat_history_sheet.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 
 
 class ChatScreen extends StatefulWidget {
@@ -521,6 +522,10 @@ class _ChatScreenState extends State<ChatScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            child: _buildTitleCard(),
+          ),
           _buildConfigCard(),
 
           if (_isInitialized || _bubbles.isNotEmpty) ...[
@@ -763,9 +768,70 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildTitleCard() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF654ea3), Color(0xFFeaafc8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF654ea3).withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.forum_rounded, size: 24, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Flexible(
+                      child: ResponsiveBilingualText(
+                        english: 'LLM Smart Dialogue',
+                        chinese: '智能对话',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Local LLM-powered intelligent chat assistant',
+                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            onPressed: _isGenerating ? null : _openHistorySheet,
+            icon: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+            tooltip: 'Chat History',
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildConfigCard() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
         color: Colors.white,

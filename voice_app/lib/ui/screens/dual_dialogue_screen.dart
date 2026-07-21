@@ -954,50 +954,66 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      const Icon(Icons.people_alt_rounded, size: 24, color: Color(0xFF1E3C72)),
-                                      const SizedBox(width: 8),
-                                      Flexible(
-                                        child: ResponsiveBilingualText(
-                                          english: 'Dual Dialogue',
-                                          chinese: '双人对话',
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF2D3748),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [Color(0xFF134E5E), Color(0xFF71B280)],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF134E5E).withOpacity(0.3),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 4),
                                   ),
-                                ),
-                                IconButton(
-                                  onPressed: _openHistory,
-                                  icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
-                                  tooltip: 'History',
-                                ),
-                              ],
+                                ],
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            const Icon(Icons.people_alt_rounded, size: 24, color: Colors.white),
+                                            const SizedBox(width: 8),
+                                            Flexible(
+                                              child: ResponsiveBilingualText(
+                                                english: 'Dual Dialogue',
+                                                chinese: '双人对话',
+                                                style: const TextStyle(
+                                                  fontSize: 18,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        const Text(
+                                          'Two-sided ASR/MT/TTS real-time translation',
+                                          style: TextStyle(fontSize: 11, color: Colors.white70),
+                                          overflow: TextOverflow.ellipsis,
+                                          maxLines: 1,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  IconButton(
+                                    onPressed: _openHistory,
+                                    icon: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+                                    tooltip: 'History',
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                            child: Text(
-                              _status,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _buildLanguageCard(),
-                          ),
-                          const SizedBox(height: 8),
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
                             child: _buildConfigCard(
@@ -1028,19 +1044,13 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     );
   }
 
-  Widget _buildLanguageCard() {
+  Widget _buildLanguageInnerCard() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         children: [
@@ -1069,7 +1079,7 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
             icon: Container(
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: const Color(0xFF1E3C72).withOpacity(0.06),
+                color: const Color(0xFF1E3C72).withOpacity(0.08),
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF1E3C72), size: 20),
@@ -1107,9 +1117,9 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
@@ -1181,6 +1191,8 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  _buildLanguageInnerCard(),
                   const SizedBox(height: 12),
                   _dropdownLabel('ASR A ($_langA)', 'asr'),
                   const SizedBox(height: 4),

@@ -3,6 +3,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/services/tts_service.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 
 class TtsScreen extends StatefulWidget {
   const TtsScreen({Key? key}) : super(key: key);
@@ -238,21 +239,59 @@ class _TtsScreenState extends State<TtsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // --- Title ---
-              const Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.record_voice_over_rounded, size: 26, color: Color(0xFF1E3C72)),
-                  SizedBox(width: 8),
-                  Text(
-                    'TTS Speech Synthesis',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF2D3748),
-                    ),
+              // --- Title Card ---
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF11998e), Color(0xFF38ef7d)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF11998e).withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.record_voice_over_rounded, size: 24, color: Colors.white),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: ResponsiveBilingualText(
+                                  english: 'TTS Speech Synthesis',
+                                  chinese: '语音合成',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'High-quality offline text-to-speech synthesis',
+                            style: TextStyle(fontSize: 11, color: Colors.white70),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 16),
               

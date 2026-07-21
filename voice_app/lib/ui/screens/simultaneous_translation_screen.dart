@@ -597,35 +597,64 @@ class _SimultaneousTranslationScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.hearing_rounded,
-                                  size: 26, color: Color(0xFF1E3C72)),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: ResponsiveBilingualText(
-                                  english: 'Simultaneous Interpretation',
-                                  chinese: '同声传译',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF2D3748),
-                                  ),
-                                ),
-                              ),
-                            ],
+                    // --- Title Card ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF0F2027), Color(0xFF203A43)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0F2027).withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        IconButton(
-                          onPressed: _openHistory,
-                          icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
-                          tooltip: 'History',
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.hearing_rounded, size: 24, color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: ResponsiveBilingualText(
+                                        english: 'Simultaneous Interpretation',
+                                        chinese: '同声传译',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'End-to-end streaming speech recognition & translation',
+                                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _openHistory,
+                            icon: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+                            tooltip: 'History',
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
                     _buildConfigCard(),

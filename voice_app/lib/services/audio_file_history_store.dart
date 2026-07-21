@@ -311,4 +311,25 @@ class AudioFileHistoryStore {
     
     return targetPath;
   }
+
+  /// Calculates total size of all files in audio_file history store.
+  static Future<int> getStorageSize() async {
+    final dir = await _historyDir();
+    if (!await dir.exists()) return 0;
+    int size = 0;
+    await for (final entity in dir.list(recursive: true, followLinks: false)) {
+      if (entity is File) {
+        size += await entity.length();
+      }
+    }
+    return size;
+  }
+
+  /// Clears all history sessions and audio files in audio_file history store.
+  static Future<void> clearAll() async {
+    final dir = await _historyDir();
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
+  }
 }

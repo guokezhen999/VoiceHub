@@ -52,5 +52,6 @@ flutter_launcher_icons:
 flutter:
   uses-material-design: true
   assets:
+    - assets/app_icon.png
     - assets/espeak-ng-data.zip
     - assets/silero_vad.onnx

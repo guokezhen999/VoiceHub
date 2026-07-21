@@ -18,6 +18,7 @@ import 'package:voice_app/ui/screens/audio_file_transcription_screen.dart';
 import 'package:voice_app/ui/screens/simultaneous_translation_screen.dart';
 import 'package:voice_app/services/vad_settings.dart';
 import 'package:voice_app/services/advanced_settings.dart';
+import 'package:voice_app/services/cache_statistics_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -616,7 +617,7 @@ void showSettingsBottomSheet(BuildContext context) {
                 const SizedBox(height: 8),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Show performance metrics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
+                  title: const Text('Show Performance Metrics', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748))),
                   subtitle: const Text(
                     'Display encoder time and decoder tokens/second for MT translation',
                     style: TextStyle(fontSize: 12, color: Colors.grey),
@@ -675,6 +676,40 @@ void showSettingsBottomSheet(BuildContext context) {
                   onTap: () {
                     Navigator.pop(context);
                     showAdvancedSettingsBottomSheet(context);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Cache Statistics (缓存信息统计)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  subtitle: const Text(
+                    'View model and mode history cache statistics, clear history',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showCacheSettingsBottomSheet(context);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'About VoiceHub (关于 VoiceHub)',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  subtitle: const Text(
+                    'Developer info, open-source repo, and third-party licenses',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+                  onTap: () {
+                    Navigator.pop(context);
+                    showAboutSettingsBottomSheet(context);
                   },
                 ),
               ],
@@ -1297,6 +1332,804 @@ class _GridMenuCardState extends State<GridMenuCard> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+void showCacheSettingsBottomSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _CacheSettingsSheet(
+      onBack: () {
+        Navigator.pop(sheetContext);
+        showSettingsBottomSheet(context);
+      },
+    ),
+  );
+}
+
+class _CacheSettingsSheet extends StatefulWidget {
+  final VoidCallback onBack;
+
+  const _CacheSettingsSheet({required this.onBack});
+
+  @override
+  State<_CacheSettingsSheet> createState() => _CacheSettingsSheetState();
+}
+
+class _CacheSettingsSheetState extends State<_CacheSettingsSheet> {
+  bool _loading = true;
+  ModelCacheSummary? _modelCache;
+  List<ModeCacheInfo> _modeCaches = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCacheData();
+  }
+
+  Future<void> _loadCacheData() async {
+    setState(() => _loading = true);
+    final modelSummary = await CacheStatisticsService.getModelCacheSummary();
+    final modeCaches = await CacheStatisticsService.getModeCacheInfos();
+    if (mounted) {
+      setState(() {
+        _modelCache = modelSummary;
+        _modeCaches = modeCaches;
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _confirmAndClearMode(ModeCacheInfo mode) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            const SizedBox(width: 8),
+            const Text('确认清理历史记录', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: Text(
+          '确定要清理【${mode.title}】的历史记录缓存吗？\n清理后所有相关会话与音频文件将被删除，且无法恢复。',
+          style: const TextStyle(fontSize: 14, color: Color(0xFF4A5568)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认清理', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await CacheStatisticsService.clearModeHistory(mode.key);
+      await _loadCacheData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('已成功清理【${mode.title}】的历史记录缓存'),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmAndClearAllHistories() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.delete_forever_rounded, color: Colors.redAccent, size: 26),
+            const SizedBox(width: 8),
+            const Text('确认清理全部历史', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          '确定要清理所有模式的历史记录缓存吗？\n此操作将清空所有模式下的记录与文件，且无法撤销。',
+          style: TextStyle(fontSize: 14, color: Color(0xFF4A5568)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认清理全部', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await CacheStatisticsService.clearAllModeHistories();
+      await _loadCacheData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('已成功清理所有模式的历史记录缓存'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.85;
+
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                      onPressed: widget.onBack,
+                    ),
+                    const Text(
+                      'Cache Statistics (缓存信息统计)',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 8),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else ...[
+              _buildModelCacheSection(),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              _buildModeHistoryCacheSection(),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildModelCacheSection() {
+    final totalSizeStr = CacheStatisticsService.formatBytes(_modelCache?.totalSizeInBytes ?? 0);
+    final totalCount = _modelCache?.totalCount ?? 0;
+    final details = _modelCache?.details ?? [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.inventory_2_rounded, color: Color(0xFF1E3C72), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  '模型缓存统计 (Model Cache)',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                ),
+              ],
+            ),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(context);
+                showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (ctx) => ModelManagementSheet(
+                    initialType: 'asr',
+                    onModelsChanged: _loadCacheData,
+                  ),
+                );
+              },
+              icon: const Icon(Icons.tune_rounded, size: 16),
+              label: const Text('模型管理', style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF7FAFC),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('已下载模型总计', style: TextStyle(fontSize: 13, color: Color(0xFF718096))),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEBF8FF),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      '$totalCount 个模型 · $totalSizeStr',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF2B6CB0)),
+                    ),
+                  ),
+                ],
+              ),
+              if (details.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Divider(height: 1),
+                const SizedBox(height: 8),
+                ...details.map((d) => Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          Icon(d.icon, size: 16, color: const Color(0xFF4A5568)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              d.title,
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF2D3748)),
+                            ),
+                          ),
+                          Text(
+                            '${d.count} 个 · ${CacheStatisticsService.formatBytes(d.sizeInBytes)}',
+                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5568)),
+                          ),
+                        ],
+                      ),
+                    )),
+              ] else ...[
+                const SizedBox(height: 8),
+                const Text(
+                  '暂无已下载模型',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildModeHistoryCacheSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: const [
+                Icon(Icons.history_rounded, color: Color(0xFF1E3C72), size: 20),
+                SizedBox(width: 8),
+                Text(
+                  '各个模式历史记录缓存',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                ),
+              ],
+            ),
+            if (_modeCaches.isNotEmpty)
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.redAccent,
+                  side: const BorderSide(color: Colors.redAccent, width: 1),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                onPressed: _confirmAndClearAllHistories,
+                icon: const Icon(Icons.delete_sweep_rounded, size: 16),
+                label: const Text('一键清理全部', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          '仅显示存在缓存数据的模式（无缓存数据不显示）',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+        const SizedBox(height: 12),
+        if (_modeCaches.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF7FAFC),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: const [
+                Icon(Icons.cleaning_services_rounded, size: 40, color: Colors.grey),
+                SizedBox(height: 8),
+                Text(
+                  '暂无历史记录缓存',
+                  style: TextStyle(fontSize: 14, color: Colors.grey, fontWeight: FontWeight.w500),
+                ),
+              ],
+            ),
+          )
+        else
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _modeCaches.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, index) {
+              final mode = _modeCaches[index];
+              return Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: mode.color.withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(mode.icon, color: mode.color, size: 20),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            mode.title,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${mode.count} 条记录 · ${CacheStatisticsService.formatBytes(mode.sizeInBytes)}',
+                            style: const TextStyle(fontSize: 12, color: Color(0xFF718096), fontWeight: FontWeight.w500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
+                      tooltip: '清理【${mode.title}】缓存',
+                      onPressed: () => _confirmAndClearMode(mode),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+}
+
+void showAboutSettingsBottomSheet(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (sheetContext) => _AboutSettingsSheet(
+      onBack: () {
+        Navigator.pop(sheetContext);
+        showSettingsBottomSheet(context);
+      },
+    ),
+  );
+}
+
+class _AboutSettingsSheet extends StatelessWidget {
+  final VoidCallback onBack;
+
+  const _AboutSettingsSheet({required this.onBack});
+
+  static const String _repoUrl = 'https://github.com/guokezhen999/VoiceHub.git';
+
+  static final List<Map<String, String>> _thirdPartyLibraries = [
+    {
+      'name': 'sherpa-onnx',
+      'description': 'Next-generation Kaldi offline ASR, TTS, and VAD engine based on ONNX Runtime',
+      'license': 'Apache-2.0',
+    },
+    {
+      'name': 'onnxruntime',
+      'description': 'Microsoft high-performance cross-platform machine learning inference engine',
+      'license': 'MIT',
+    },
+    {
+      'name': 'llama.cpp',
+      'description': 'High-performance C/C++ LLM inference engine supporting GGUF quantizations',
+      'license': 'MIT',
+    },
+    {
+      'name': 'Silero VAD',
+      'description': 'Pre-trained enterprise-grade voice activity detector',
+      'license': 'MIT',
+    },
+    {
+      'name': 'Opus-MT / MarianMT',
+      'description': 'Fast neural machine translation framework and models',
+      'license': 'MIT',
+    },
+    {
+      'name': 'audioplayers',
+      'description': 'Flutter plugin for audio playback across iOS, Android, macOS, and Web',
+      'license': 'MIT',
+    },
+    {
+      'name': 'record',
+      'description': 'Audio recorder plugin supporting PCM, WAV, and AAC encoding',
+      'license': 'MIT',
+    },
+    {
+      'name': 'flutter_markdown',
+      'description': 'Markdown renderer for Flutter supporting GitHub Flavored Markdown',
+      'license': 'BSD-3-Clause',
+    },
+    {
+      'name': 'archive',
+      'description': 'Dart library for zip, tar, gzip compression and extraction',
+      'license': 'MIT',
+    },
+    {
+      'name': 'path_provider & path',
+      'description': 'Flutter filesystem path location utilities and path manipulations',
+      'license': 'BSD-3-Clause',
+    },
+    {
+      'name': 'ffi',
+      'description': 'Dart Foreign Function Interface for native C/C++ bindings',
+      'license': 'BSD-3-Clause',
+    },
+    {
+      'name': 'Flutter SDK',
+      'description': 'Google open-source multi-platform application UI framework',
+      'license': 'BSD-3-Clause',
+    },
+  ];
+
+  void _copyRepoUrl(BuildContext context) {
+    Clipboard.setData(const ClipboardData(text: _repoUrl));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('已复制 GitHub 开源仓库地址到剪贴板'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxHeight = MediaQuery.of(context).size.height * 0.88;
+
+    return Container(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+          topLeft: Radius.circular(24),
+          topRight: Radius.circular(24),
+        ),
+      ),
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF2D3748)),
+                      onPressed: onBack,
+                    ),
+                    const Text(
+                      'About VoiceHub (关于应用)',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                    ),
+                  ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 12),
+            Center(
+              child: Column(
+                children: [
+                  Container(
+                    width: 76,
+                    height: 76,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        'assets/app_icon.png',
+                        width: 76,
+                        height: 76,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'VoiceHub',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'v1.0.0 (Build 1)',
+                    style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    '跨平台离线语音转写、实时同传与 AI 助手',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF718096)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              '开发者信息 (Developer)',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () {
+                Clipboard.setData(const ClipboardData(text: 'guokezhen999@gmail.com'));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('已复制开发者邮箱 (guokezhen999@gmail.com) 到剪贴板'),
+                    duration: Duration(seconds: 2),
+                  ),
+                );
+              },
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF7FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E3C72).withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.person_rounded, color: Color(0xFF1E3C72), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            '郭珂桢 (Kezhen Guo)',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'guokezhen999@gmail.com',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF2B6CB0), fontWeight: FontWeight.w500),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Lead Developer & Project Maintainer',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF718096)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.email_outlined, color: Colors.grey, size: 18),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            const Text(
+              'Git 开源仓库 (Repository)',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+            ),
+            const SizedBox(height: 8),
+            InkWell(
+              onTap: () => _copyRepoUrl(context),
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF7FAFC),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF27AE60).withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.code_rounded, color: Color(0xFF27AE60), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'VoiceHub GitHub 仓库',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            _repoUrl,
+                            style: TextStyle(fontSize: 12, color: Color(0xFF2B6CB0), fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Icon(Icons.copy_rounded, color: Colors.grey, size: 18),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  '第三方开源库清单 (Third-Party Libraries)',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                ),
+                Text(
+                  '${_thirdPartyLibraries.length} 项',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _thirdPartyLibraries.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final lib = _thirdPartyLibraries[index];
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            lib['name']!,
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF2D3748)),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEDF2F7),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              lib['license']!,
+                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Color(0xFF4A5568)),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        lib['description']!,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF718096)),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
         ),
       ),
     );

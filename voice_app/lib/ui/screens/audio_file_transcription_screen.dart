@@ -860,14 +860,14 @@ class _AudioFileTranscriptionScreenState extends State<AudioFileTranscriptionScr
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF0F2027), Color(0xFF203A43), Color(0xFF2C5364)],
+          colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.1),
+            color: const Color(0xFF8E2DE2).withOpacity(0.3),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

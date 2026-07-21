@@ -962,45 +962,69 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // --- Title Section ---
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.layers_rounded, size: 26, color: Color(0xFF1E3C72)),
-                              const SizedBox(width: 8),
-                              Flexible(
-                                child: ResponsiveBilingualText(
-                                  english: 'Cascade Translation',
-                                  chinese: '级联式翻译',
-                                  style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF2D3748),
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                            ],
+                    // --- Title Card ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF1E3C72), Color(0xFF2A5298)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF1E3C72).withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
                           ),
-                        ),
-                        IconButton(
-                          onPressed: _openHistory,
-                          icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
-                          tooltip: 'History',
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.layers_rounded, size: 24, color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: ResponsiveBilingualText(
+                                        english: 'Cascade Voice Translation',
+                                        chinese: '级联式翻译',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'End-to-end voice translation (ASR -> MT -> TTS)',
+                                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: _openHistory,
+                            icon: const Icon(Icons.history_rounded, color: Colors.white, size: 24),
+                            tooltip: 'History',
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
 
                     // --- Step Visualization Bar ---
                     _buildStepVisualizer(),
-                    const SizedBox(height: 16),
-
-                    // --- Language Selector Card ---
-                    _buildLanguageSelectorCard(),
                     const SizedBox(height: 16),
 
                     // --- Model Management & Initialization Card ---
@@ -1116,19 +1140,13 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     );
   }
 
-  Widget _buildLanguageSelectorCard() {
+  Widget _buildLanguageInnerCard() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         children: [
@@ -1136,8 +1154,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Source Language', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
+                const Text('Source Language', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
                 _buildLanguageDropdown(
                   value: _selectedSourceLang,
                   onChanged: (val) {
@@ -1148,16 +1166,16 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             child: IconButton(
               onPressed: _swapLanguages,
               icon: Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF1E3C72).withOpacity(0.05),
+                  color: const Color(0xFF1E3C72).withOpacity(0.08),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF1E3C72)),
+                child: const Icon(Icons.swap_horiz_rounded, color: Color(0xFF1E3C72), size: 20),
               ),
             ),
           ),
@@ -1165,8 +1183,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Target Language', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
+                const Text('Target Language', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
                 _buildLanguageDropdown(
                   value: _selectedTargetLang,
                   onChanged: (val) {
@@ -1186,23 +1204,23 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     required ValueChanged<String?> onChanged,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.grey.shade300),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: value,
           isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey),
+          icon: const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey, size: 18),
           items: LanguageManager.languages.map((lang) {
             return DropdownMenuItem<String>(
               value: lang,
               child: Text(
                 lang,
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
               ),
             );
           }).toList(),
@@ -1272,6 +1290,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Divider(height: 1, color: Color(0xFFEEEEEE)),
+                  const SizedBox(height: 12),
+                  _buildLanguageInnerCard(),
                   const SizedBox(height: 16),
 
                   // --- ASR Model Dropdown ---
@@ -1634,64 +1654,109 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
     );
   }
 
-  /// Build interleaved TextSpan children: for each segment show ASR line then MT line.
-  List<TextSpan> _buildSegmentSpans() {
-    final spans = <TextSpan>[];
+  /// Build speech bubble list for single-side dialogue style (all aligned on the same side).
+  List<Widget> _buildCascadeBubbles() {
+    final widgets = <Widget>[];
 
     for (int i = 0; i < _cascadeSegments.length; i++) {
       final seg = _cascadeSegments[i];
-      if (i > 0) {
-        spans.add(const TextSpan(text: '\n\n')); // blank line between sentence groups
-      }
-
-      // ASR line - source language color
-      spans.add(TextSpan(
-        text: seg.asr,
-        style: const TextStyle(
-          fontSize: 14,
-          color: Color(0xFF2D3748),
-          fontWeight: FontWeight.w500,
-        ),
+      final bool isTranslating = (i == _currentTranslatingIndex && _currentStep == 2);
+      widgets.add(_buildCascadeBubbleWidget(
+        asr: seg.asr,
+        mt: seg.mt,
+        isLive: false,
+        isTranslating: isTranslating,
       ));
-
-      // MT line - translated text in accent color
-      if (seg.mt.isNotEmpty) {
-        spans.add(const TextSpan(text: '\n'));
-        final bool isTranslating = (i == _currentTranslatingIndex && _currentStep == 2);
-        spans.add(TextSpan(
-          text: seg.mt + (isTranslating ? ' ▍' : ''),
-          style: TextStyle(
-            fontSize: 14,
-            color: const Color(0xFF1E3C72),
-            fontStyle: isTranslating ? FontStyle.italic : FontStyle.normal,
-          ),
-        ));
-      } else if (i == _currentTranslatingIndex && _currentStep == 2) {
-        // Waiting for translation
-        spans.add(const TextSpan(text: '\n'));
-        spans.add(const TextSpan(
-          text: 'Translating... ▍',
-          style: TextStyle(fontSize: 14, color: Colors.grey, fontStyle: FontStyle.italic),
-        ));
-      }
     }
 
     // Append the currently-being-recognized partial ASR text
     if (_currentAsrResult.isNotEmpty) {
-      if (_cascadeSegments.isNotEmpty) {
-        spans.add(const TextSpan(text: '\n\n'));
-      }
-      spans.add(TextSpan(
-        text: '$_currentAsrResult ▍',
-        style: const TextStyle(
-          fontSize: 14,
-          color: Color(0xFF718096),
-          fontStyle: FontStyle.italic,
-        ),
+      widgets.add(_buildCascadeBubbleWidget(
+        asr: '$_currentAsrResult ▍',
+        mt: '',
+        isLive: true,
+        isTranslating: false,
       ));
     }
 
-    return spans;
+    return widgets;
+  }
+
+  Widget _buildCascadeBubbleWidget({
+    required String asr,
+    required String mt,
+    required bool isLive,
+    required bool isTranslating,
+  }) {
+    // Single side dialogue style (light blue/indigo theme matching Cascade Translation)
+    const bg = Color(0xFFE8EEF7);
+    const border = Color(0xFFC5D4EA);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.85,
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+            decoration: BoxDecoration(
+              color: isLive ? bg.withOpacity(0.7) : bg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: border),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ASR text (Source Language)
+                Text(
+                  asr.isEmpty ? '...' : asr,
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.35,
+                    color: const Color(0xFF2D3748),
+                    fontWeight: FontWeight.w500,
+                    fontStyle: isLive ? FontStyle.italic : FontStyle.normal,
+                  ),
+                ),
+                // MT text (Target Language)
+                if (mt.isNotEmpty || isTranslating) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.only(top: 8),
+                    decoration: const BoxDecoration(
+                      border: Border(top: BorderSide(color: border)),
+                    ),
+                    child: Text(
+                      isTranslating && mt.isEmpty
+                          ? 'Translating... ▍'
+                          : mt + (isTranslating ? ' ▍' : ''),
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.35,
+                        color: const Color(0xFF1E3C72),
+                        fontWeight: FontWeight.w400,
+                        fontStyle: isTranslating ? FontStyle.italic : FontStyle.normal,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildResultsCard(bool showPerfMetrics) {
@@ -1723,26 +1788,45 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
           ),
           const SizedBox(height: 12),
 
-          // Unified ASR + Translation display
-          const Text('Conversation (ASR → MT)', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 6),
+          // Unified ASR + Translation display (Dialogue Bubble Style, Single Side)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Conversation (ASR → MT)',
+                style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold),
+              ),
+              if (_cascadeSegments.isNotEmpty || _currentAsrResult.isNotEmpty)
+                Text(
+                  '${_cascadeSegments.length} segments',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.all(12),
-            constraints: const BoxConstraints(minHeight: 80),
+            constraints: const BoxConstraints(minHeight: 100),
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.grey.shade100),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.grey.shade200),
             ),
             child: _cascadeSegments.isEmpty && _currentAsrResult.isEmpty
-                ? Text(
-                    _isRecording ? 'Listening...' : 'No transcription yet.',
-                    style: const TextStyle(fontSize: 14, color: Colors.grey, fontStyle: FontStyle.italic),
-                  )
-                : SelectableText.rich(
-                    TextSpan(
-                      children: _buildSegmentSpans(),
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 20),
+                      child: Text(
+                        _isRecording ? 'Listening...\n(正在倾听中...)' : '暂无识别与翻译记录\n点击底部麦克风开始说话',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: Colors.grey.shade500, height: 1.5),
+                      ),
                     ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: _buildCascadeBubbles(),
                   ),
           ),
           const SizedBox(height: 12),
@@ -1794,18 +1878,14 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
   Widget _buildMicControlPanel() {
     return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.06),
-            blurRadius: 16,
-            offset: const Offset(0, -6),
+            blurRadius: 12,
+            offset: const Offset(0, -2),
           ),
         ],
       ),
@@ -1814,23 +1894,24 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
         children: [
           Text(
             _pipelineStatus,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
 
-          // Symmetrically balanced Row containing Clear, Stop TTS, Microphone, Replay TTS, and Spacers
+          // Symmetrically balanced Row matching Dual Dialogue bar & button sizing
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               // 1. Clear Button
               SizedBox(
-                width: 52,
-                height: 52,
+                width: 36,
+                height: 36,
                 child: IconButton(
+                  padding: EdgeInsets.zero,
                   onPressed: (_cascadeSegments.isEmpty && _currentAsrResult.isEmpty)
                       ? null
                       : _clearConversation,
-                  icon: const Icon(Icons.delete_outline, size: 26),
+                  icon: const Icon(Icons.delete_outline, size: 18),
                   color: Colors.red.shade400,
                   disabledColor: Colors.grey.shade300,
                   tooltip: 'Clear Conversation',
@@ -1839,8 +1920,8 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
 
               // 2. Stop TTS Button (visible when TTS is active)
               SizedBox(
-                width: 52,
-                height: 52,
+                width: 36,
+                height: 36,
                 child: AnimatedOpacity(
                   opacity: (_isTtsPlaying || _isProcessingTtsQueue) ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
@@ -1860,20 +1941,19 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                           boxShadow: [
                             BoxShadow(
                               color: Colors.orange.shade300.withOpacity(0.4),
-                              blurRadius: 12,
-                              spreadRadius: 1,
-                              offset: const Offset(0, 4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.volume_off_rounded, color: Colors.white, size: 24),
+                        child: const Icon(Icons.volume_off_rounded, color: Colors.white, size: 18),
                       ),
                     ),
                   ),
                 ),
               ),
 
-              // 3. Microphone Button
+              // 3. Microphone Button (56x56 matching Dual Dialogue)
               GestureDetector(
                 onTap: () {
                   if (_isRecording) {
@@ -1883,9 +1963,9 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                   }
                 },
                 child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  width: 76,
-                  height: 76,
+                  duration: const Duration(milliseconds: 180),
+                  width: 56,
+                  height: 56,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: _isRecording
@@ -1902,25 +1982,24 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                         color: (_isRecording
                                 ? Colors.red.shade300
                                 : (_isEnginesReady ? const Color(0xFF1E3C72) : Colors.grey))
-                            .withOpacity(0.4),
-                        blurRadius: _isRecording ? 20 : 12,
-                        spreadRadius: _isRecording ? 4 : 1,
-                        offset: const Offset(0, 6),
+                            .withOpacity(0.35),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
                       ),
                     ],
                   ),
                   child: Icon(
                     _isRecording ? Icons.stop_rounded : Icons.mic_rounded,
                     color: Colors.white,
-                    size: 32,
+                    size: 26,
                   ),
                 ),
               ),
 
               // 4. Replay TTS Button
               SizedBox(
-                width: 52,
-                height: 52,
+                width: 36,
+                height: 36,
                 child: AnimatedOpacity(
                   opacity: (_useTts && _ttsService.isInitialized && _cascadeSegments.isNotEmpty) ? 1.0 : 0.0,
                   duration: const Duration(milliseconds: 200),
@@ -1950,24 +2029,23 @@ class _CascadeTranslationScreenState extends State<CascadeTranslationScreen> {
                           boxShadow: [
                             BoxShadow(
                               color: const Color(0xFF1E3C72).withOpacity(0.3),
-                              blurRadius: 12,
-                              spreadRadius: 1,
-                              offset: const Offset(0, 4),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
                           ],
                         ),
-                        child: const Icon(Icons.volume_up_rounded, color: Colors.white, size: 24),
+                        child: const Icon(Icons.volume_up_rounded, color: Colors.white, size: 18),
                       ),
                     ),
                   ),
                 ),
               ),
 
-              // 5. Spacer to balance layout (width 52)
-              const SizedBox(width: 52, height: 52),
+              // 5. Spacer to balance layout (width 36)
+              const SizedBox(width: 36, height: 36),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             _isRecording
                 ? 'Tap to Stop'

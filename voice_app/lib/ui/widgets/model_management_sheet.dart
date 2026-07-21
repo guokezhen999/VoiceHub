@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:voice_app/models/model_manager.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 
 class ModelManagementSheet extends StatefulWidget {
   final String initialType; // 'asr' or 'tts'
@@ -169,10 +170,12 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
           sourceFilePath: srcPath,
           modelName: modelName,
           onProgress: (progress) {
-            setState(() {
-              _importProgress = progress;
-              _importStatus = 'Copying: ${(progress * 100).toStringAsFixed(0)}%';
-            });
+            if (mounted) {
+              setState(() {
+                _importProgress = progress;
+                _importStatus = 'Copying: ${(progress * 100).toStringAsFixed(0)}%';
+              });
+            }
           },
         );
       } else if (_isArchive) {
@@ -182,10 +185,12 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
           language: targetLanguage,
           modelName: modelName,
           onProgress: (progress) {
-            setState(() {
-              _importProgress = progress;
-              _importStatus = 'Extracting: ${(progress * 100).toStringAsFixed(0)}%';
-            });
+            if (mounted) {
+              setState(() {
+                _importProgress = progress;
+                _importStatus = 'Extracting: ${(progress * 100).toStringAsFixed(0)}%';
+              });
+            }
           },
         );
       } else {
@@ -195,10 +200,12 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
           language: targetLanguage,
           modelName: modelName,
           onProgress: (progress) {
-            setState(() {
-              _importProgress = progress;
-              _importStatus = 'Copying: ${(progress * 100).toStringAsFixed(0)}%';
-            });
+            if (mounted) {
+              setState(() {
+                _importProgress = progress;
+                _importStatus = 'Copying: ${(progress * 100).toStringAsFixed(0)}%';
+              });
+            }
           },
         );
       }
@@ -223,6 +230,8 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
         );
       }
 
+      if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Successfully imported model: $modelName')),
       );
@@ -235,13 +244,16 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
       widget.onModelsChanged();
       _loadModels();
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Import failed: $e'), duration: const Duration(seconds: 6)),
       );
     } finally {
-      setState(() {
-        _isImporting = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isImporting = false;
+        });
+      }
     }
   }
 
@@ -374,21 +386,66 @@ class _ModelManagementSheetState extends State<ModelManagementSheet> {
               ),
             ),
             
-            // Header
+            // Header Title Card
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Local Models Manager',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF2C3E50), Color(0xFF4CA1AF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                  ),
-                ],
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF2C3E50).withOpacity(0.3),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.inventory_2_rounded, size: 24, color: Colors.white),
+                              const SizedBox(width: 8),
+                              Flexible(
+                                child: ResponsiveBilingualText(
+                                  english: 'Model Repository',
+                                  chinese: '模型仓库',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Manage and download offline speech & LLM models',
+                            style: TextStyle(fontSize: 11, color: Colors.white70),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 24),
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
               ),
             ),
 

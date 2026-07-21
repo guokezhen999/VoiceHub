@@ -58,7 +58,7 @@ VoiceHub/
 │   ├── macos/                         # macOS 原生 App 配置 (Xcode 工程)
 │   └── build/macos/Build/Products/    # 最终打包输出路径
 ├── sherpa-onnx/                       # ASR / TTS 离线语音识别与合成引擎
-│   └── flutter/sherpa_onnx/
+│   └── flutter/sherpa_onnx_macos/
 ├── llama/                             # LLM 机器翻译模块 (基于 llama.cpp)
 │   └── flutter/llamacpp_macos/
 ├── opus_mt/                           # Opus-MT 神经机器翻译模块
@@ -73,7 +73,7 @@ VoiceHub/
 
 | 模块名称 | 生成动态库 (`.dylib`) | Flutter 插件名称 | 对应插件目录 |
 |---|---|---|---|
-| **sherpa-onnx** | `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib` | `sherpa_onnx` | `sherpa-onnx/flutter/sherpa_onnx` |
+| **sherpa-onnx** | `libsherpa-onnx-c-api.dylib`, `libonnxruntime.dylib` | `sherpa_onnx` (`sherpa_onnx_macos`) | `sherpa-onnx/flutter/sherpa_onnx_macos` |
 | **llama** | `libllamacpp_nmt.dylib`, `libomp.dylib` | `llamacpp_macos` | `llama/flutter/llamacpp_macos` |
 | **opus_mt** | `libopus_mt.dylib` | `opus_mt_macos` | `opus_mt/flutter/opus_mt_macos` |
 | **voice_engine** | `libvoice_engine.dylib` | `voice_engine_macos` | `voice_engine/flutter/voice_engine_macos` |
@@ -102,7 +102,10 @@ chmod +x scripts/build_macos_all.sh
 
 ### 3.2 分模块编译说明
 
-如需对单个模块进行代码修改与单独编译，可按照以下命令分别进行：
+如需对单个模块进行代码修改与单独编译，可按照以下命令分别进行。
+
+> [!NOTE]
+> 模块间依赖提示：`voice_engine` 与 `simulst` 依赖 `sherpa-onnx` 及 `llama` 导出的 C-API 头文件与动态库。若要单独编译 `voice_engine` 或 `simulst`，请确保已先行编译 `sherpa-onnx` 与 `llama`。
 
 #### (1) 编译 sherpa-onnx
 ```bash
@@ -111,13 +114,19 @@ mkdir -p build && cd build
 cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=release
 cmake --build . --config release -j$(sysctl -n hw.logicalcpu)
 cmake --install . --config release
+
+# 将编译生成的动态库拷贝至 macOS Flutter 插件路径
+mkdir -p ../flutter/sherpa_onnx_macos/macos/
+cp lib/libsherpa-onnx-c-api.dylib ../flutter/sherpa_onnx_macos/macos/
+cp _deps/onnxruntime-build/lib/libonnxruntime.dylib ../flutter/sherpa_onnx_macos/macos/
 ```
 
 #### (2) 编译 llama.cpp
 ```bash
 cd llama
+# 确保 llama.cpp 子模块已被正确 clone (至 llama/llama.cpp)
 ./build_macos.sh release
-# 编译产物 libllamacpp_nmt.dylib 和 libomp.dylib 会自动自动修复 @rpath 并拷贝至:
+# 编译产物 libllamacpp_nmt.dylib 和 libomp.dylib 会自动修复 @rpath 并拷贝至:
 # flutter/llamacpp_macos/macos/
 ```
 
@@ -223,18 +232,59 @@ ls -la "voice_app/build/macos/Build/Products/Release/Voice Hub.app/Contents/Fram
 - `libonnxruntime.dylib`
 - `libopus_mt.dylib`
 - `libsherpa-onnx-c-api.dylib`
+- `libsherpa-onnx-cxx-api.dylib`
 - `libsimulst.dylib`
 - `libvoice_engine.dylib`
 
 ### 5.3 压缩与归档 (ZIP / DMG)
 
-用于分发和发布时，可以使用 macOS 的 `ditto` 工具将其压缩为独立的 ZIP 包：
+用于分发和发布时，可以使用 ZIP 包或 macOS 标准的 DMG 磁盘镜像：
+
+#### (1) 打包 ZIP 压缩包 (快捷、跨平台解压)
+使用 macOS 的 `ditto` 工具压缩（保留 macOS 资源元数据）：
 
 ```bash
 cd voice_app/build/macos/Build/Products/Release
 
-# 打包 ZIP (保留 macOS 资源元数据)
+# 打包 ZIP
 ditto -c -k --sequesterRsrc "Voice Hub.app" "VoiceHub-macOS.zip"
+```
+
+#### (2) 打包 DMG 磁盘镜像包 (macOS 标准安装体验)
+
+##### 方案 A：使用 macOS 内置命令 `hdiutil`（零依赖，即装即用）
+包含 `/Applications` 软链接，方便用户拖拽安装：
+
+```bash
+cd voice_app/build/macos/Build/Products/Release
+
+# 创建临时目录结构并打包 DMG
+mkdir -p DMG_Folder
+cp -R "Voice Hub.app" DMG_Folder/
+ln -s /Applications DMG_Folder/Applications
+hdiutil create -volname "VoiceHub" -srcfolder DMG_Folder -ov -format UDZO "VoiceHub-macOS.dmg"
+rm -rf DMG_Folder
+```
+
+##### 方案 B：使用 `create-dmg`（推荐，支持图标与可视化拖拽布局）
+生成带有背景布局、自定义图标与应用拖拽指示的精美 DMG 包：
+
+```bash
+# 1. 安装 create-dmg
+brew install create-dmg
+
+# 2. 生成自定义美化 DMG
+create-dmg \
+  --volname "VoiceHub" \
+  --volicon "Voice Hub.app/Contents/Resources/AppIcon.icns" \
+  --window-pos 200 120 \
+  --window-size 600 400 \
+  --icon-size 100 \
+  --icon "Voice Hub.app" 175 190 \
+  --hide-extension "Voice Hub.app" \
+  --app-drop-link 425 190 \
+  "VoiceHub-macOS.dmg" \
+  "Voice Hub.app"
 ```
 
 ---

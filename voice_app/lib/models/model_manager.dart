@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:isolate';
 import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -862,97 +863,139 @@ class ModelManager {
     final destPath = (type == 'llm' || type == 'simulst')
         ? p.join(typeRoot.path, modelName)
         : p.join(typeRoot.path, language, modelName);
-    final destDir = Directory(destPath);
-    if (destDir.existsSync()) {
-      await destDir.delete(recursive: true);
-    }
-    await destDir.create(recursive: true);
 
-    final srcDir = Directory(srcPath);
-    final files = srcDir.listSync(recursive: true);
+    final receivePort = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _importDirectoryWorker,
+      _DirectoryIsolateParam(
+        sendPort: receivePort.sendPort,
+        srcPath: srcPath,
+        destPath: destPath,
+        type: type,
+      ),
+    );
 
-    // First find base path in the source directory (ignoring macOS metadata/junk files)
-    String? basePath;
-    for (var entity in files) {
-      if (entity is File) {
-        final pathLower = entity.path.toLowerCase();
-        final nameLower = p.basename(entity.path).toLowerCase();
-        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
-          continue;
-        }
-        if (entity.path.endsWith('.onnx') || entity.path.endsWith('.gguf')) {
-          basePath = p.dirname(entity.path);
-          break;
-        }
-      }
-    }
-    basePath ??= srcPath;
-
-    // Collect all relative paths
-    final relativePaths = <String>[];
-    final fileEntities = <String, File>{};
-
-    for (var entity in files) {
-      if (entity is File) {
-        final normalizedPath = p.normalize(entity.path);
-        final pathLower = normalizedPath.toLowerCase();
-        final nameLower = p.basename(normalizedPath).toLowerCase();
-        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
-          continue;
-        }
-        final normalizedBase = p.normalize(basePath);
-
-        if (normalizedPath.startsWith(normalizedBase)) {
-          var sub = normalizedPath.substring(normalizedBase.length);
-          if (sub.startsWith('/') || sub.startsWith('\\')) {
-            sub = sub.substring(1);
-          }
-          if (sub.isNotEmpty) {
-            relativePaths.add(sub);
-            fileEntities[sub] = entity;
+    try {
+      await for (final msg in receivePort) {
+        if (msg is Map) {
+          if (msg['type'] == 'progress') {
+            onProgress?.call(msg['value'] as double);
+          } else if (msg['type'] == 'success') {
+            break;
+          } else if (msg['type'] == 'error') {
+            throw Exception(msg['message'] ?? 'Directory import failed');
           }
         }
       }
-    }
-
-    final importMap = _resolveImportFiles(relativePaths, type);
-
-    int completed = 0;
-    int total = importMap.length;
-
-    for (var entry in importMap.entries) {
-      final srcRelPath = entry.key;
-      final destRelPath = entry.value;
-      final entity = fileEntities[srcRelPath];
-
-      if (entity != null) {
-        final destEntityPath = p.join(destPath, destRelPath);
-        await File(destEntityPath).create(recursive: true);
-        await entity.copy(destEntityPath);
-      }
-
-      completed++;
-      if (onProgress != null && total > 0) {
-        onProgress(completed / total);
-      }
-    }
-
-    // Detect and write casing info to metadata.json during import
-    final tokensFile = File(p.join(destPath, 'tokens.txt'));
-    if (tokensFile.existsSync()) {
-      final casing = ModelInfo._detectTokensCasing(tokensFile);
-      final metaFile = File(p.join(destPath, 'metadata.json'));
-      Map<String, dynamic> metaData = {};
-      if (metaFile.existsSync()) {
-        try {
-          metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
-        } catch (_) {}
-      }
-      metaData['casing'] = casing;
-      metaFile.writeAsStringSync(jsonEncode(metaData));
+    } finally {
+      receivePort.close();
+      isolate.kill();
     }
 
     notifyChange();
+  }
+
+  static Future<void> _importDirectoryWorker(_DirectoryIsolateParam param) async {
+    final sendPort = param.sendPort;
+    final srcPath = param.srcPath;
+    final destPath = param.destPath;
+    final type = param.type;
+
+    try {
+      final destDir = Directory(destPath);
+      if (destDir.existsSync()) {
+        destDir.deleteSync(recursive: true);
+      }
+      destDir.createSync(recursive: true);
+
+      final srcDir = Directory(srcPath);
+      final files = srcDir.listSync(recursive: true);
+
+      // First find base path in the source directory (ignoring macOS metadata/junk files)
+      String? basePath;
+      for (var entity in files) {
+        if (entity is File) {
+          final pathLower = entity.path.toLowerCase();
+          final nameLower = p.basename(entity.path).toLowerCase();
+          if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+            continue;
+          }
+          if (entity.path.endsWith('.onnx') || entity.path.endsWith('.gguf')) {
+            basePath = p.dirname(entity.path);
+            break;
+          }
+        }
+      }
+      basePath ??= srcPath;
+
+      // Collect all relative paths
+      final relativePaths = <String>[];
+      final fileEntities = <String, File>{};
+
+      for (var entity in files) {
+        if (entity is File) {
+          final normalizedPath = p.normalize(entity.path);
+          final pathLower = normalizedPath.toLowerCase();
+          final nameLower = p.basename(normalizedPath).toLowerCase();
+          if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+            continue;
+          }
+          final normalizedBase = p.normalize(basePath);
+
+          if (normalizedPath.startsWith(normalizedBase)) {
+            var sub = normalizedPath.substring(normalizedBase.length);
+            if (sub.startsWith('/') || sub.startsWith('\\')) {
+              sub = sub.substring(1);
+            }
+            if (sub.isNotEmpty) {
+              relativePaths.add(sub);
+              fileEntities[sub] = entity;
+            }
+          }
+        }
+      }
+
+      final importMap = _resolveImportFiles(relativePaths, type);
+
+      int completed = 0;
+      int total = importMap.length;
+
+      for (var entry in importMap.entries) {
+        final srcRelPath = entry.key;
+        final destRelPath = entry.value;
+        final entity = fileEntities[srcRelPath];
+
+        if (entity != null) {
+          final destEntityPath = p.join(destPath, destRelPath);
+          File(destEntityPath).createSync(recursive: true);
+          entity.copySync(destEntityPath);
+        }
+
+        completed++;
+        if (total > 0) {
+          sendPort.send({'type': 'progress', 'value': completed / total});
+        }
+      }
+
+      // Detect and write casing info to metadata.json during import
+      final tokensFile = File(p.join(destPath, 'tokens.txt'));
+      if (tokensFile.existsSync()) {
+        final casing = ModelInfo._detectTokensCasing(tokensFile);
+        final metaFile = File(p.join(destPath, 'metadata.json'));
+        Map<String, dynamic> metaData = {};
+        if (metaFile.existsSync()) {
+          try {
+            metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
+          } catch (_) {}
+        }
+        metaData['casing'] = casing;
+        metaFile.writeAsStringSync(jsonEncode(metaData));
+      }
+
+      sendPort.send({'type': 'success'});
+    } catch (e) {
+      sendPort.send({'type': 'error', 'message': e.toString()});
+    }
   }
 
   /// Opens an archive from disk using file streams to avoid loading the whole
@@ -1032,8 +1075,45 @@ class ModelManager {
     final String destPath = (type == 'llm' || type == 'simulst')
         ? p.join(typeRoot.path, modelName)
         : p.join(typeRoot.path, language, modelName);
+
+    final receivePort = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _importArchiveWorker,
+      _ArchiveIsolateParam(
+        sendPort: receivePort.sendPort,
+        archivePath: archivePath,
+        destPath: destPath,
+        type: type,
+      ),
+    );
+
+    try {
+      await for (final msg in receivePort) {
+        if (msg is Map) {
+          if (msg['type'] == 'progress') {
+            onProgress?.call(msg['value'] as double);
+          } else if (msg['type'] == 'success') {
+            break;
+          } else if (msg['type'] == 'error') {
+            throw Exception(msg['message'] ?? 'Archive import failed');
+          }
+        }
+      }
+    } finally {
+      receivePort.close();
+      isolate.kill();
+    }
+
+    notifyChange();
+  }
+
+  static Future<void> _importArchiveWorker(_ArchiveIsolateParam param) async {
+    final sendPort = param.sendPort;
+    final archivePath = param.archivePath;
+    final destPath = param.destPath;
+    final type = param.type;
+
     if (type == 'llm') {
-      // For LLM, destPath is a file: ensure parent directory exists.
       final parentDir = Directory(p.dirname(destPath));
       if (!parentDir.existsSync()) {
         parentDir.createSync(recursive: true);
@@ -1041,9 +1121,9 @@ class ModelManager {
     } else {
       final destDir = Directory(destPath);
       if (destDir.existsSync()) {
-        await destDir.delete(recursive: true);
+        destDir.deleteSync(recursive: true);
       }
-      await destDir.create(recursive: true);
+      destDir.createSync(recursive: true);
     }
 
     final tempDirs = <Directory>[];
@@ -1056,118 +1136,118 @@ class ModelManager {
         openStreams: openStreams,
       );
 
-    // Find base path in archive (ignoring macOS metadata/junk files)
-    String? basePath;
-    for (final file in archive) {
-      if (file.isFile) {
-        final pathLower = file.name.toLowerCase();
-        final nameLower = p.basename(file.name).toLowerCase();
-        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
-          continue;
-        }
-        if (file.name.endsWith('.onnx') || file.name.endsWith('.gguf')) {
-          basePath = p.dirname(file.name);
-          break;
+      // Find base path in archive (ignoring macOS metadata/junk files)
+      String? basePath;
+      for (final file in archive) {
+        if (file.isFile) {
+          final pathLower = file.name.toLowerCase();
+          final nameLower = p.basename(file.name).toLowerCase();
+          if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+            continue;
+          }
+          if (file.name.endsWith('.onnx') || file.name.endsWith('.gguf')) {
+            basePath = p.dirname(file.name);
+            break;
+          }
         }
       }
-    }
 
-    if (basePath == '.' || basePath == null) {
-      basePath = '';
-    } else {
-      basePath = p.normalize(basePath);
-      if (basePath == '.') {
+      if (basePath == '.' || basePath == null) {
         basePath = '';
-      }
-    }
-
-    // Collect all relative paths
-    final relativePaths = <String>[];
-    final archiveFiles = <String, ArchiveFile>{};
-
-    for (final file in archive) {
-      if (file.isFile) {
-        final normalizedFilePath = p.normalize(file.name);
-        final pathLower = normalizedFilePath.toLowerCase();
-        final nameLower = p.basename(normalizedFilePath).toLowerCase();
-        if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
-          continue;
+      } else {
+        basePath = p.normalize(basePath);
+        if (basePath == '.') {
+          basePath = '';
         }
-        String relativePath = '';
-        if (basePath.isEmpty) {
-          relativePath = normalizedFilePath;
-        } else {
-          if (normalizedFilePath.startsWith(basePath)) {
-            var sub = normalizedFilePath.substring(basePath.length);
-            if (sub.startsWith('/') || sub.startsWith('\\')) {
-              sub = sub.substring(1);
+      }
+
+      // Collect all relative paths
+      final relativePaths = <String>[];
+      final archiveFiles = <String, ArchiveFile>{};
+
+      for (final file in archive) {
+        if (file.isFile) {
+          final normalizedFilePath = p.normalize(file.name);
+          final pathLower = normalizedFilePath.toLowerCase();
+          final nameLower = p.basename(normalizedFilePath).toLowerCase();
+          if (pathLower.contains('__macosx') || nameLower.startsWith('._') || nameLower == '.ds_store') {
+            continue;
+          }
+          String relativePath = '';
+          if (basePath.isEmpty) {
+            relativePath = normalizedFilePath;
+          } else {
+            if (normalizedFilePath.startsWith(basePath)) {
+              var sub = normalizedFilePath.substring(basePath.length);
+              if (sub.startsWith('/') || sub.startsWith('\\')) {
+                sub = sub.substring(1);
+              }
+              relativePath = sub;
             }
-            relativePath = sub;
           }
-        }
-        if (relativePath.isNotEmpty) {
-          relativePaths.add(relativePath);
-          archiveFiles[relativePath] = file;
-        }
-      }
-    }
-
-    final importMap = _resolveImportFiles(relativePaths, type);
-
-    if (type == 'llm') {
-      // For LLM, extract only the .gguf file directly to the dest file path.
-      final ggufEntry = importMap.entries.firstWhere(
-        (e) => e.value.endsWith('.gguf'),
-        orElse: () => const MapEntry('', ''),
-      );
-      if (ggufEntry.key.isNotEmpty) {
-        final archiveFile = archiveFiles[ggufEntry.key];
-        if (archiveFile != null) {
-          await _writeArchiveFile(archiveFile, destPath);
-          if (onProgress != null) {
-            onProgress(1.0);
+          if (relativePath.isNotEmpty) {
+            relativePaths.add(relativePath);
+            archiveFiles[relativePath] = file;
           }
         }
       }
-    } else {
-      int completed = 0;
-      int total = importMap.length;
 
-      for (var entry in importMap.entries) {
-        final srcRelPath = entry.key;
-        final destRelPath = entry.value;
-        final file = archiveFiles[srcRelPath];
+      final importMap = _resolveImportFiles(relativePaths, type);
 
-        if (file != null) {
-          final outPath = p.join(destPath, destRelPath);
-          await _writeArchiveFile(file, outPath);
+      if (type == 'llm') {
+        // For LLM, extract only the .gguf file directly to the dest file path.
+        final ggufEntry = importMap.entries.firstWhere(
+          (e) => e.value.endsWith('.gguf'),
+          orElse: () => const MapEntry('', ''),
+        );
+        if (ggufEntry.key.isNotEmpty) {
+          final archiveFile = archiveFiles[ggufEntry.key];
+          if (archiveFile != null) {
+            await _writeArchiveFile(archiveFile, destPath);
+            sendPort.send({'type': 'progress', 'value': 1.0});
+          }
         }
+      } else {
+        int completed = 0;
+        int total = importMap.length;
 
-        completed++;
-        if (onProgress != null && total > 0) {
-          onProgress(completed / total);
+        for (var entry in importMap.entries) {
+          final srcRelPath = entry.key;
+          final destRelPath = entry.value;
+          final file = archiveFiles[srcRelPath];
+
+          if (file != null) {
+            final outPath = p.join(destPath, destRelPath);
+            await _writeArchiveFile(file, outPath);
+          }
+
+          completed++;
+          if (total > 0) {
+            sendPort.send({'type': 'progress', 'value': completed / total});
+          }
         }
       }
-    }
 
-    // Detect and write casing info to metadata.json during import (not for LLM).
-    if (type != 'llm') {
-      final tokensFile = File(p.join(destPath, 'tokens.txt'));
-      if (tokensFile.existsSync()) {
-        final casing = ModelInfo._detectTokensCasing(tokensFile);
-        final metaFile = File(p.join(destPath, 'metadata.json'));
-        Map<String, dynamic> metaData = {};
-        if (metaFile.existsSync()) {
-          try {
-            metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
-          } catch (_) {}
+      // Detect and write casing info to metadata.json during import (not for LLM).
+      if (type != 'llm') {
+        final tokensFile = File(p.join(destPath, 'tokens.txt'));
+        if (tokensFile.existsSync()) {
+          final casing = ModelInfo._detectTokensCasing(tokensFile);
+          final metaFile = File(p.join(destPath, 'metadata.json'));
+          Map<String, dynamic> metaData = {};
+          if (metaFile.existsSync()) {
+            try {
+              metaData = Map<String, dynamic>.from(jsonDecode(metaFile.readAsStringSync()));
+            } catch (_) {}
+          }
+          metaData['casing'] = casing;
+          metaFile.writeAsStringSync(jsonEncode(metaData));
         }
-        metaData['casing'] = casing;
-        metaFile.writeAsStringSync(jsonEncode(metaData));
       }
-    }
 
-    notifyChange();
+      sendPort.send({'type': 'success'});
+    } catch (e) {
+      sendPort.send({'type': 'error', 'message': e.toString()});
     } finally {
       if (archive != null) {
         await archive.clear();
@@ -1193,24 +1273,73 @@ class ModelManager {
     final typeRoot = await getTypeRoot('llm');
     final destPath = p.join(typeRoot.path, '$modelName.gguf');
 
-    final srcFile = File(sourceFilePath);
-    if (!srcFile.existsSync()) {
-      throw Exception('Source .gguf file not found: $sourceFilePath');
-    }
+    final receivePort = ReceivePort();
+    final isolate = await Isolate.spawn(
+      _importLlmGgufWorker,
+      _LlmGgufIsolateParam(
+        sendPort: receivePort.sendPort,
+        sourceFilePath: sourceFilePath,
+        destPath: destPath,
+      ),
+    );
 
-    final destFile = File(destPath);
-    if (destFile.existsSync()) {
-      await destFile.delete();
-    }
-    await destFile.create(recursive: true);
-    await srcFile.copy(destPath);
-
-    if (onProgress != null) {
-      onProgress(0.5);
-      onProgress(1.0);
+    try {
+      await for (final msg in receivePort) {
+        if (msg is Map) {
+          if (msg['type'] == 'progress') {
+            onProgress?.call(msg['value'] as double);
+          } else if (msg['type'] == 'success') {
+            break;
+          } else if (msg['type'] == 'error') {
+            throw Exception(msg['message'] ?? 'GGUF import failed');
+          }
+        }
+      }
+    } finally {
+      receivePort.close();
+      isolate.kill();
     }
 
     notifyChange();
+  }
+
+  static Future<void> _importLlmGgufWorker(_LlmGgufIsolateParam param) async {
+    final sendPort = param.sendPort;
+    final sourceFilePath = param.sourceFilePath;
+    final destPath = param.destPath;
+
+    try {
+      final srcFile = File(sourceFilePath);
+      if (!srcFile.existsSync()) {
+        throw Exception('Source .gguf file not found: $sourceFilePath');
+      }
+
+      final destFile = File(destPath);
+      if (destFile.existsSync()) {
+        destFile.deleteSync();
+      }
+      destFile.createSync(recursive: true);
+
+      final totalBytes = srcFile.lengthSync();
+      if (totalBytes == 0) {
+        srcFile.copySync(destPath);
+        sendPort.send({'type': 'progress', 'value': 1.0});
+      } else {
+        final reader = srcFile.openRead();
+        final sink = destFile.openWrite();
+        int copied = 0;
+        await for (final chunk in reader) {
+          sink.add(chunk);
+          copied += chunk.length;
+          sendPort.send({'type': 'progress', 'value': copied / totalBytes});
+        }
+        await sink.close();
+      }
+
+      sendPort.send({'type': 'success'});
+    } catch (e) {
+      sendPort.send({'type': 'error', 'message': e.toString()});
+    }
   }
 
   static Map<String, String> _resolveImportFiles(List<String> srcPaths, String type) {
@@ -1265,7 +1394,6 @@ class ModelManager {
     final bestEncoder = selectBest(encoders, type);
     final bestDecoder = selectBest(decoders, type);
     final bestJoiner = selectBest(joiners, type);
-    final bestModel = selectBest(models, type);
 
     if (type == 'asr') {
       if (bestEncoder != null) result[bestEncoder] = 'encoder.onnx';
@@ -1470,4 +1598,44 @@ class ModelManager {
     }
     return file.path;
   }
+}
+
+class _ArchiveIsolateParam {
+  final SendPort sendPort;
+  final String archivePath;
+  final String destPath;
+  final String type;
+
+  _ArchiveIsolateParam({
+    required this.sendPort,
+    required this.archivePath,
+    required this.destPath,
+    required this.type,
+  });
+}
+
+class _DirectoryIsolateParam {
+  final SendPort sendPort;
+  final String srcPath;
+  final String destPath;
+  final String type;
+
+  _DirectoryIsolateParam({
+    required this.sendPort,
+    required this.srcPath,
+    required this.destPath,
+    required this.type,
+  });
+}
+
+class _LlmGgufIsolateParam {
+  final SendPort sendPort;
+  final String sourceFilePath;
+  final String destPath;
+
+  _LlmGgufIsolateParam({
+    required this.sendPort,
+    required this.sourceFilePath,
+    required this.destPath,
+  });
 }

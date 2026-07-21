@@ -6,6 +6,7 @@ import 'package:voice_app/services/asr_service.dart';
 import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/ui/widgets/model_management_sheet.dart';
 import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
+import 'package:voice_app/ui/widgets/responsive_bilingual_text.dart';
 
 class AsrScreen extends StatefulWidget {
   const AsrScreen({Key? key}) : super(key: key);
@@ -243,21 +244,59 @@ class _AsrScreenState extends State<AsrScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // --- Title ---
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.mic_rounded, size: 26, color: Color(0xFF1E3C72)),
-                        SizedBox(width: 8),
-                        Text(
-                          'ASR Speech Recognition',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2D3748),
-                          ),
+                    // --- Title Card ---
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
                         ),
-                      ],
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF2193b0).withOpacity(0.3),
+                            blurRadius: 10,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(Icons.mic_rounded, size: 24, color: Colors.white),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: ResponsiveBilingualText(
+                                        english: 'ASR Speech Recognition',
+                                        chinese: '语音识别',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'High-precision offline speech-to-text recognition',
+                                  style: TextStyle(fontSize: 11, color: Colors.white70),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: 16),
 
