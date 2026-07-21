@@ -100,6 +100,7 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
   final List<Map<String, dynamic>> _ttsQueue = [];
   bool _isProcessingTtsQueue = false;
   bool _isTtsPlaying = false;
+  _SpeakerSide? _currentlyPlayingSide;
   Completer<void>? _playCompleter;
 
   // History session (one init = one session)
@@ -268,6 +269,7 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     _ttsQueue.clear();
     _isProcessingTtsQueue = false;
     _isTtsPlaying = false;
+    _currentlyPlayingSide = null;
     _playCompleter?.complete();
     _playCompleter = null;
   }
@@ -654,6 +656,7 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
       setState(() {
         _status = 'Speaking...';
         _isTtsPlaying = true;
+        _currentlyPlayingSide = ttsSide;
       });
 
       try {
@@ -673,9 +676,13 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
         debugPrint('Dual dialogue TTS error: $e');
       } finally {
         if (mounted) {
-          setState(() => _isTtsPlaying = false);
+          setState(() {
+            _isTtsPlaying = false;
+            _currentlyPlayingSide = null;
+          });
         } else {
           _isTtsPlaying = false;
+          _currentlyPlayingSide = null;
         }
       }
     }
@@ -696,40 +703,64 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     setState(() {
       _isProcessingTtsQueue = false;
       _isTtsPlaying = false;
+      _currentlyPlayingSide = null;
       _status = _isRecording
           ? (_activeSide == _SpeakerSide.a ? 'Listening (A)...' : 'Listening (B)...')
           : 'Ready';
     });
   }
 
-  /// Replay the latest translated bubble with the matching target-side TTS.
-  void _replayLastTts() {
-    if (!_useTts || _isTtsPlaying || _isProcessingTtsQueue) return;
+  /// Stop TTS if the specified side is currently playing.
+  Future<void> _stopTtsForSide(_SpeakerSide side) async {
+    if (_currentlyPlayingSide == side) {
+      await _stopTts();
+    }
+  }
 
-    _DialogueBubble? lastWithMt;
+  bool _canStopTtsForSide(_SpeakerSide side) {
+    return _useTts && (_isTtsPlaying || _isProcessingTtsQueue) && _currentlyPlayingSide == side;
+  }
+
+  /// Replay the latest translation from the counterpart of [side].
+  Future<void> _replayTtsForSide(_SpeakerSide side) async {
+    if (!_useTts) return;
+
+    // Ensure only one audio plays at a time: stop any ongoing playback first
+    await _stopTts();
+    if (_isRecording) {
+      await _stopRecording();
+    }
+
+    final counterpart = side == _SpeakerSide.a ? _SpeakerSide.b : _SpeakerSide.a;
+
+    _DialogueBubble? lastCounterpartBubble;
     for (int i = _bubbles.length - 1; i >= 0; i--) {
-      if (_bubbles[i].mt.trim().isNotEmpty && !_bubbles[i].mt.startsWith('[Error]')) {
-        lastWithMt = _bubbles[i];
+      if (_bubbles[i].side == counterpart &&
+          _bubbles[i].mt.trim().isNotEmpty &&
+          !_bubbles[i].mt.startsWith('[Error]')) {
+        lastCounterpartBubble = _bubbles[i];
         break;
       }
     }
-    if (lastWithMt == null) return;
 
-    final ttsSide = lastWithMt.side == _SpeakerSide.a ? _SpeakerSide.b : _SpeakerSide.a;
-    final engines = _engines(ttsSide);
-    if (!engines.tts.isInitialized) return;
+    if (lastCounterpartBubble == null) return;
 
-    _ttsQueue.add({'text': lastWithMt.mt.trim(), 'ttsSide': ttsSide});
+    final engines = _engines(side);
+    if (!engines.tts.isInitialized || engines.ttsModel == null) return;
+
+    _ttsQueue.add({'text': lastCounterpartBubble.mt.trim(), 'ttsSide': side});
     _processTtsQueue();
   }
 
-  bool get _canReplayTts {
+  bool _canReplayTtsForSide(_SpeakerSide side) {
     if (!_useTts) return false;
-    if (!_sideA.tts.isInitialized && !_sideB.tts.isInitialized) return false;
-    return _bubbles.any((b) => b.mt.trim().isNotEmpty && !b.mt.startsWith('[Error]'));
-  }
+    final engines = _engines(side);
+    if (!engines.tts.isInitialized || engines.ttsModel == null) return false;
 
-  bool get _canStopTts => _useTts && (_isTtsPlaying || _isProcessingTtsQueue || _ttsQueue.isNotEmpty);
+    final counterpart = side == _SpeakerSide.a ? _SpeakerSide.b : _SpeakerSide.a;
+    return _bubbles.any((b) =>
+        b.side == counterpart && b.mt.trim().isNotEmpty && !b.mt.startsWith('[Error]'));
+  }
 
   Float32List _concatSessionAudio() {
     if (_sessionAudioChunks.isEmpty || _recordedSampleCount <= 0) {
@@ -1527,11 +1558,18 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     final ready = _isEnginesReady && !_isInitializing;
     final aRecording = _activeSide == _SpeakerSide.a && _isRecording;
     final bRecording = _activeSide == _SpeakerSide.b && _isRecording;
-    final canStop = _canStopTts;
-    final canReplay = _canReplayTts && !_isTtsPlaying && !_isProcessingTtsQueue;
+
+    final aCanStop = _canStopTtsForSide(_SpeakerSide.a);
+    final aCanReplay = _canReplayTtsForSide(_SpeakerSide.a);
+
+    final bCanStop = _canStopTtsForSide(_SpeakerSide.b);
+    final bCanReplay = _canReplayTtsForSide(_SpeakerSide.b);
+
+    final aPlaying = _currentlyPlayingSide == _SpeakerSide.a;
+    final bPlaying = _currentlyPlayingSide == _SpeakerSide.b;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 14),
       decoration: BoxDecoration(
         color: Colors.white,
         boxShadow: [
@@ -1542,104 +1580,192 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
           ),
         ],
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          // Speaker A section
+          _sideControlGroup(
+            side: _SpeakerSide.a,
+            label: 'A ($_langA)',
+            color: const Color(0xFF1E3C72),
+            recording: aRecording,
+            enabled: ready,
+            canStop: aCanStop,
+            canReplay: aCanReplay,
+            onMicPressed: () => _toggleRecording(_SpeakerSide.a),
+            onStopPressed: () => _stopTtsForSide(_SpeakerSide.a),
+            onReplayPressed: () => _replayTtsForSide(_SpeakerSide.a),
+          ),
+
+          // Center Status & Clear section
+          Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _micButton(
-                label: 'A',
-                color: const Color(0xFF1E3C72),
-                recording: aRecording,
-                enabled: ready,
-                onPressed: () => _toggleRecording(_SpeakerSide.a),
-              ),
-              _ttsControlButton(
-                icon: Icons.volume_off_rounded,
-                tooltip: '停止播放',
-                colors: [Colors.orange.shade600, Colors.orange.shade400],
-                enabled: canStop,
-                onTap: _stopTts,
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    aRecording
-                        ? 'A 收音中'
-                        : bRecording
-                            ? 'B 收音中'
-                            : _isTtsPlaying
-                                ? 'TTS 播放中'
+              Text(
+                aRecording
+                    ? 'A 收音中'
+                    : bRecording
+                        ? 'B 收音中'
+                        : aPlaying
+                            ? 'A 播放中'
+                            : bPlaying
+                                ? 'B 播放中'
                                 : '点一侧开始 · 可切换',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                  const SizedBox(height: 8),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _clearConversation,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: (aRecording || bRecording || aPlaying || bPlaying)
+                      ? FontWeight.bold
+                      : FontWeight.normal,
+                  color: (aRecording || bRecording)
+                      ? Colors.redAccent
+                      : (aPlaying || bPlaying)
+                          ? const Color(0xFF1E3C72)
+                          : Colors.grey.shade600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: _clearConversation,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade100,
                       borderRadius: BorderRadius.circular(20),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: Colors.grey.shade300),
+                      border: Border.all(color: Colors.grey.shade300),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.delete_outline_rounded, size: 16, color: Colors.grey.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          '清空',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey.shade700,
+                          ),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.delete_outline_rounded, size: 18, color: Colors.grey.shade700),
-                            const SizedBox(width: 4),
-                            Text(
-                              '清空',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey.shade700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-              _ttsControlButton(
-                icon: Icons.volume_up_rounded,
-                tooltip: '重新播放',
-                colors: const [Color(0xFF1E3C72), Color(0xFF2A5298)],
-                enabled: canReplay,
-                onTap: _replayLastTts,
-              ),
-              _micButton(
-                label: 'B',
-                color: const Color(0xFF2A9D8F),
-                recording: bRecording,
-                enabled: ready,
-                onPressed: () => _toggleRecording(_SpeakerSide.b),
+                ),
               ),
             ],
+          ),
+
+          // Speaker B section
+          _sideControlGroup(
+            side: _SpeakerSide.b,
+            label: 'B ($_langB)',
+            color: const Color(0xFF2A9D8F),
+            recording: bRecording,
+            enabled: ready,
+            canStop: bCanStop,
+            canReplay: bCanReplay,
+            onMicPressed: () => _toggleRecording(_SpeakerSide.b),
+            onStopPressed: () => _stopTtsForSide(_SpeakerSide.b),
+            onReplayPressed: () => _replayTtsForSide(_SpeakerSide.b),
           ),
         ],
       ),
     );
   }
 
-  Widget _ttsControlButton({
+  Widget _sideControlGroup({
+    required _SpeakerSide side,
+    required String label,
+    required Color color,
+    required bool recording,
+    required bool enabled,
+    required bool canStop,
+    required bool canReplay,
+    required VoidCallback onMicPressed,
+    required VoidCallback onStopPressed,
+    required VoidCallback onReplayPressed,
+  }) {
+    final isA = side == _SpeakerSide.a;
+
+    final stopBtn = _sideActionButton(
+      icon: Icons.stop_rounded,
+      tooltip: '停止播放 ($label)',
+      color: Colors.deepOrange.shade600,
+      enabled: canStop,
+      isFilledWhenEnabled: true,
+      onTap: onStopPressed,
+    );
+
+    final replayBtn = _sideActionButton(
+      icon: Icons.replay_rounded,
+      tooltip: '重播对方翻译 ($label)',
+      color: color,
+      enabled: canReplay,
+      onTap: onReplayPressed,
+    );
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.bold,
+            color: recording ? Colors.redAccent : color,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (isA) ...[
+              stopBtn,
+              const SizedBox(width: 4),
+              _micButtonCircle(
+                color: color,
+                recording: recording,
+                enabled: enabled,
+                onPressed: onMicPressed,
+              ),
+              const SizedBox(width: 4),
+              replayBtn,
+            ] else ...[
+              replayBtn,
+              const SizedBox(width: 4),
+              _micButtonCircle(
+                color: color,
+                recording: recording,
+                enabled: enabled,
+                onPressed: onMicPressed,
+              ),
+              const SizedBox(width: 4),
+              stopBtn,
+            ],
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _sideActionButton({
     required IconData icon,
     required String tooltip,
-    required List<Color> colors,
+    required Color color,
     required bool enabled,
     required VoidCallback onTap,
+    bool isFilledWhenEnabled = false,
   }) {
+    final activeBg = isFilledWhenEnabled ? color : color.withOpacity(0.12);
+    final activeIconColor = isFilledWhenEnabled ? Colors.white : color;
+
     return Tooltip(
       message: tooltip,
       child: AnimatedOpacity(
-        opacity: enabled ? 1.0 : 0.35,
+        opacity: enabled ? 1.0 : 0.3,
         duration: const Duration(milliseconds: 180),
         child: Material(
           color: Colors.transparent,
@@ -1647,26 +1773,29 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
             onTap: enabled ? onTap : null,
             customBorder: const CircleBorder(),
             child: Container(
-              width: 48,
-              height: 48,
+              width: 36,
+              height: 36,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: enabled ? colors : [Colors.grey.shade400, Colors.grey.shade500],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+                color: enabled ? activeBg : Colors.grey.shade100,
+                border: Border.all(
+                  color: enabled ? color.withOpacity(0.4) : Colors.grey.shade300,
                 ),
-                boxShadow: enabled
+                boxShadow: (enabled && isFilledWhenEnabled)
                     ? [
                         BoxShadow(
-                          color: colors.first.withOpacity(0.35),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
+                          color: color.withOpacity(0.35),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
                         ),
                       ]
                     : null,
               ),
-              child: Icon(icon, color: Colors.white, size: 22),
+              child: Icon(
+                icon,
+                color: enabled ? activeIconColor : Colors.grey.shade400,
+                size: 18,
+              ),
             ),
           ),
         ),
@@ -1674,53 +1803,45 @@ class _DualDialogueScreenState extends State<DualDialogueScreen> {
     );
   }
 
-  Widget _micButton({
-    required String label,
+  Widget _micButtonCircle({
     required Color color,
     required bool recording,
     required bool enabled,
     required VoidCallback onPressed,
   }) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: color)),
-        const SizedBox(height: 6),
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: enabled ? onPressed : null,
-            customBorder: const CircleBorder(),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: !enabled
-                    ? Colors.grey.shade300
-                    : recording
-                        ? Colors.redAccent
-                        : color,
-                boxShadow: enabled
-                    ? [
-                        BoxShadow(
-                          color: (recording ? Colors.redAccent : color).withOpacity(0.35),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Icon(
-                recording ? Icons.stop_rounded : Icons.mic_rounded,
-                color: Colors.white,
-                size: 28,
-              ),
-            ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onPressed : null,
+        customBorder: const CircleBorder(),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: !enabled
+                ? Colors.grey.shade300
+                : recording
+                    ? Colors.redAccent
+                    : color,
+            boxShadow: enabled
+                ? [
+                    BoxShadow(
+                      color: (recording ? Colors.redAccent : color).withOpacity(0.35),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Icon(
+            recording ? Icons.stop_rounded : Icons.mic_rounded,
+            color: Colors.white,
+            size: 26,
           ),
         ),
-      ],
+      ),
     );
   }
 }

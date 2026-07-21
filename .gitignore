@@ -76,7 +76,8 @@ llama/flutter/llamacpp_macos/.pub/
 # Large Files (dylibs, ML models, Archive packages)
 *.dylib
 *.so
-model/
+opus_mt/model
+/models/
 
 # Audio/Wav test datasets (Large audio files)
 wav/
@@ -84,6 +85,7 @@ wav/
 
 # Large ML model files (ASR ONNX)
 *.onnx
+!voice_app/assets/silero_vad.onnx
 opus_mt/asr/
 
 # iOS Binary Frameworks
