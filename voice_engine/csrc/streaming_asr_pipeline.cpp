@@ -61,6 +61,10 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
   pre_speech_size_ = 0;
   post_speech_size_ = 0;
   vad_ever_detected_ = false;
+  total_samples_popped_ = 0;
+  speech_start_sample_ = 0;
+  last_endpoint_sample_ = 0;
+  stream_samples_processed_ = 0;
   partial_.clear();
   finalized_.clear();
   speaking_ = false;
@@ -164,22 +168,28 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
       const int32_t head = SherpaOnnxCircularBufferHead(circular_buffer_);
       const float* w = SherpaOnnxCircularBufferGet(circular_buffer_, head, window);
       SherpaOnnxCircularBufferPop(circular_buffer_, window);
+      total_samples_popped_ += window;
 
       SherpaOnnxVoiceActivityDetectorAcceptWaveform(vad_, w, window);
 
       if (SherpaOnnxVoiceActivityDetectorDetected(vad_)) {
         if (!vad_ever_detected_) {
           vad_ever_detected_ = true;
+          speech_start_sample_ = total_samples_popped_ - pre_speech_size_;
+          last_endpoint_sample_ = speech_start_sample_;
+          stream_samples_processed_ = 0;
           for (const auto& buffered : pre_speech_) {
             SherpaOnnxOnlineStreamAcceptWaveform(online_stream_, kSampleRate,
                                                  buffered.data(),
                                                  static_cast<int32_t>(buffered.size()));
+            stream_samples_processed_ += static_cast<int32_t>(buffered.size());
           }
           pre_speech_.clear();
           pre_speech_size_ = 0;
         }
         post_speech_size_ = 0;
         SherpaOnnxOnlineStreamAcceptWaveform(online_stream_, kSampleRate, w, window);
+        stream_samples_processed_ += window;
       } else if (!vad_ever_detected_) {
         pre_speech_.emplace_back(w, w + window);
         pre_speech_size_ += window;
@@ -190,9 +200,34 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
       } else if (post_speech_size_ + window <= config_.max_post_speech_samples) {
         SherpaOnnxOnlineStreamAcceptWaveform(online_stream_, kSampleRate, w, window);
         post_speech_size_ += window;
+        stream_samples_processed_ += window;
       }
 
-      // A completed VAD segment signals utterance end: finalize + reset stream.
+      // Real-time decode + native endpoint check
+      if (vad_ever_detected_) {
+        while (SherpaOnnxIsOnlineStreamReady(online_recognizer_, online_stream_)) {
+          SherpaOnnxDecodeOnlineStream(online_recognizer_, online_stream_);
+        }
+
+        if (config_.enable_endpoint &&
+            SherpaOnnxOnlineStreamIsEndpoint(online_recognizer_, online_stream_)) {
+          const std::string final_text = GetOnlineText();
+          if (!final_text.empty()) {
+            double start_sec = last_endpoint_sample_ / static_cast<double>(kSampleRate);
+            double end_sec = (last_endpoint_sample_ + stream_samples_processed_) / static_cast<double>(kSampleRate);
+            finalized_.push_back({final_text, start_sec, end_sec});
+          }
+          RecreateOnlineStream();
+          vad_ever_detected_ = false;
+          pre_speech_.clear();
+          pre_speech_size_ = 0;
+          post_speech_size_ = 0;
+          last_endpoint_sample_ = 0;
+          stream_samples_processed_ = 0;
+        }
+      }
+
+      // A completed VAD segment signals utterance end: fallback finalize.
       while (!SherpaOnnxVoiceActivityDetectorEmpty(vad_)) {
         const SherpaOnnxSpeechSegment* seg =
             SherpaOnnxVoiceActivityDetectorFront(vad_);
@@ -210,14 +245,17 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
         post_speech_size_ = 0;
 
         if (!final_text.empty()) {
-          double start_sec = 0.0;
-          double end_sec = 0.0;
-          if (seg) {
-            start_sec = seg->start / static_cast<double>(kSampleRate);
-            end_sec = (seg->start + seg->n) / static_cast<double>(kSampleRate);
-          }
+          double start_sec = (last_endpoint_sample_ > 0)
+              ? last_endpoint_sample_ / static_cast<double>(kSampleRate)
+              : seg->start / static_cast<double>(kSampleRate);
+          double end_sec = (last_endpoint_sample_ > 0 && stream_samples_processed_ > 0)
+              ? (last_endpoint_sample_ + stream_samples_processed_) / static_cast<double>(kSampleRate)
+              : (seg->start + seg->n) / static_cast<double>(kSampleRate);
           finalized_.push_back({final_text, start_sec, end_sec});
         }
+        last_endpoint_sample_ = 0;
+        stream_samples_processed_ = 0;
+
         if (seg) {
           SherpaOnnxDestroySpeechSegment(seg);
         }

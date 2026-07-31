@@ -64,6 +64,12 @@ class StreamingAsrPipeline {
   int32_t post_speech_size_ = 0;
   bool vad_ever_detected_ = false;
 
+  // Timestamp tracking for hybrid endpointing
+  int64_t total_samples_popped_ = 0;
+  int64_t speech_start_sample_ = 0;
+  int64_t last_endpoint_sample_ = 0;
+  int32_t stream_samples_processed_ = 0;
+
   struct FinalizedSegment {
     std::string text;
     double start_sec;
