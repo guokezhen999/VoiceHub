@@ -551,13 +551,6 @@ class _ChatScreenState extends State<ChatScreen> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      IconButton(
-                        tooltip: 'Chat History',
-                        onPressed: _isGenerating ? null : _openHistorySheet,
-                        icon: const Icon(Icons.history_rounded, size: 18, color: Color(0xFF1E3C72)),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(minWidth: 32, minHeight: 28),
-                      ),
                       if (_isInitialized) ...[
                         const SizedBox(width: 4),
                         const Text(
@@ -753,11 +746,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 12),
-                    TextButton.icon(
-                      onPressed: _openHistorySheet,
-                      icon: const Icon(Icons.history_rounded, size: 18),
-                      label: const Text('Browse History'),
-                    ),
                   ],
                 ),
               ),
@@ -901,11 +889,6 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ],
                   ),
-                ),
-                IconButton(
-                  onPressed: _isGenerating ? null : _openHistorySheet,
-                  icon: const Icon(Icons.history_rounded, color: Color(0xFF1E3C72)),
-                  tooltip: 'Chat History',
                 ),
                 IconButton(
                   onPressed: () => _openModelManagement(),
