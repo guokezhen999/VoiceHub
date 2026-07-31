@@ -438,6 +438,18 @@ void StreamingAstPipeline::EndSegment(FinalizedSegment* out) {
   encoder_step_ = 0;
   fbank_finished_ = false;
   llm_embed_cap_ = -1;
+
+  // Release memory buffers immediately at the end of the VAD segment
+  if (!config_.keep_kv_across_segments) {
+    for (auto& task : task_decoders_) {
+      if (task.decoder) {
+        task.decoder->Reset();
+      }
+    }
+  }
+  encoder_->Reset();
+  fbank_->Reset();
+  last_real_samples_.clear();
 }
 
 void StreamingAstPipeline::ProcessSpeechWindow(const float* samples, int32_t n,
