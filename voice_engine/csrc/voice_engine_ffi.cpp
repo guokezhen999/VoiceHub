@@ -54,7 +54,8 @@ VoiceEngineHandle* voice_engine_create(const char* json_config) {
     cfg.joiner = j.value("joiner", "");
     cfg.tokens = j.value("tokens", "");
     cfg.model_type = j.value("model_type", "");
-    cfg.decoding_method = j.value("decoding_method", "greedy_search");
+    cfg.decoding_method = j.value("decoding_method", "modified_beam_search");
+    cfg.max_active_paths = j.value("max_active_paths", 4);
     cfg.num_threads = j.value("num_threads", 1);
     cfg.provider = j.value("provider", "cpu");
     cfg.debug = j.value("debug", true);
@@ -82,6 +83,7 @@ VoiceEngineHandle* voice_engine_create(const char* json_config) {
 
     cfg.circular_buffer_capacity = j.value("circular_buffer_capacity", 480000);
     cfg.max_pre_speech_samples = j.value("max_pre_speech_samples", 8000);
+    cfg.max_post_speech_samples = j.value("max_post_speech_samples", 8000);
   } catch (const std::exception& e) {
     SetError(std::string("invalid json config: ") + e.what());
     return nullptr;

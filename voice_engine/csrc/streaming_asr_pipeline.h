@@ -61,6 +61,7 @@ class StreamingAsrPipeline {
   // Pre-speech sliding window (replayed on first VAD trigger).
   std::vector<std::vector<float>> pre_speech_;
   int32_t pre_speech_size_ = 0;
+  int32_t post_speech_size_ = 0;
   bool vad_ever_detected_ = false;
 
   struct FinalizedSegment {

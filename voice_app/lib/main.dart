@@ -1021,6 +1021,80 @@ void showAdvancedSettingsBottomSheet(BuildContext context) {
                     });
                   },
                 ),
+                const Divider(),
+                const SizedBox(height: 8),
+                const Text(
+                  'ASR Decoding Method (ASR 解码方式)',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D3748)),
+                ),
+                const SizedBox(height: 2),
+                const Text(
+                  'Beam Search is the default and yields better accuracy. Greedy Search is faster but less precise.',
+                  style: TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Beam Search (束搜索)'),
+                      selected: AdvancedSettings.asrDecodingMethod == 'modified_beam_search',
+                      selectedColor: const Color(0xFF1E3C72).withValues(alpha: 0.15),
+                      labelStyle: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AdvancedSettings.asrDecodingMethod == 'modified_beam_search'
+                            ? const Color(0xFF1E3C72)
+                            : const Color(0xFF718096),
+                      ),
+                      checkmarkColor: const Color(0xFF1E3C72),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(
+                          color: AdvancedSettings.asrDecodingMethod == 'modified_beam_search'
+                              ? const Color(0xFF1E3C72)
+                              : const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      onSelected: (selected) {
+                        if (selected) {
+                          setSheetState(() {
+                            AdvancedSettings.asrDecodingMethod = 'modified_beam_search';
+                          });
+                        }
+                      },
+                    ),
+                    const SizedBox(width: 10),
+                    ChoiceChip(
+                      label: const Text('Greedy Search (贪心搜索)'),
+                      selected: AdvancedSettings.asrDecodingMethod == 'greedy_search',
+                      selectedColor: const Color(0xFF1E3C72).withValues(alpha: 0.15),
+                      labelStyle: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: AdvancedSettings.asrDecodingMethod == 'greedy_search'
+                            ? const Color(0xFF1E3C72)
+                            : const Color(0xFF718096),
+                      ),
+                      checkmarkColor: const Color(0xFF1E3C72),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: BorderSide(
+                          color: AdvancedSettings.asrDecodingMethod == 'greedy_search'
+                              ? const Color(0xFF1E3C72)
+                              : const Color(0xFFE2E8F0),
+                        ),
+                      ),
+                      onSelected: (selected) {
+                        if (selected) {
+                          setSheetState(() {
+                            AdvancedSettings.asrDecodingMethod = 'greedy_search';
+                          });
+                        }
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
               ],
             ),
           ),

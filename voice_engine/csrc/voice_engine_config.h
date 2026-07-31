@@ -17,7 +17,8 @@ struct VoiceEngineConfig {
   std::string joiner;
   std::string tokens;
   std::string model_type;                  // e.g. "zipformer2"
-  std::string decoding_method = "greedy_search";
+  std::string decoding_method = "modified_beam_search";
+  int32_t max_active_paths = 4;
   int32_t num_threads = 1;
   std::string provider = "cpu";
   bool debug = true;
@@ -41,6 +42,7 @@ struct VoiceEngineConfig {
   // Buffers
   int32_t circular_buffer_capacity = 480000;  // 30s * 16k
   int32_t max_pre_speech_samples = 8000;       // 0.5s
+  int32_t max_post_speech_samples = 8000;      // 0.5s
 };
 
 }  // namespace voice_engine

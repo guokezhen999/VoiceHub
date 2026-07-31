@@ -11,6 +11,7 @@ import 'package:voice_app/models/model_manager.dart';
 import 'package:voice_app/utils/utils.dart';
 import 'package:voice_app/ffi/voice_engine_ffi_bridge.dart';
 import 'package:voice_app/services/vad_settings.dart';
+import 'package:voice_app/services/advanced_settings.dart';
 
 /// Shared ASR helper methods and engine lifecycle management.
 ///
@@ -82,7 +83,8 @@ class AsrService {
       'joiner': model.asrJoinerPath!,
       'tokens': model.tokensPath!,
       'model_type': 'zipformer2',
-      'decoding_method': 'greedy_search',
+      'decoding_method': AdvancedSettings.asrDecodingMethod,
+      'max_active_paths': 4,
       'num_threads': 1,
       'provider': provider,
       'debug': true,
@@ -190,9 +192,9 @@ class AsrService {
   static Map<String, dynamic> buildAudioPipelineConfig(String sileroModelPath) => {
         'vad': {
           'model': sileroModelPath,
-          'threshold': VadSettings.generalMode.threshold,
-          'min_silence_duration': VadSettings.generalMode.minSilenceDuration,
-          'min_speech_duration': VadSettings.generalMode.minSpeechDuration,
+          'threshold': VadSettings.simulstMode.threshold,
+          'min_silence_duration': VadSettings.simulstMode.minSilenceDuration,
+          'min_speech_duration': VadSettings.simulstMode.minSpeechDuration,
           'window_size': 512,
           'max_speech_duration': 20.0,
           'sample_rate': 16000,

@@ -59,6 +59,7 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
   Release();
   pre_speech_.clear();
   pre_speech_size_ = 0;
+  post_speech_size_ = 0;
   vad_ever_detected_ = false;
   partial_.clear();
   finalized_.clear();
@@ -106,6 +107,7 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
     cfg.model_config.debug = config_.debug ? 1 : 0;
     cfg.model_config.model_type = config_.model_type.c_str();
     cfg.decoding_method = config_.decoding_method.c_str();
+    cfg.max_active_paths = config_.max_active_paths;
     cfg.enable_endpoint = config_.enable_endpoint ? 1 : 0;
     cfg.rule1_min_trailing_silence = config_.rule1_min_trailing_silence;
     cfg.rule2_min_trailing_silence = config_.rule2_min_trailing_silence;
@@ -136,6 +138,7 @@ bool StreamingAsrPipeline::Init(const VoiceEngineConfig& config) {
     cfg.model_config.debug = config_.debug ? 1 : 0;
     cfg.model_config.model_type = config_.model_type.c_str();
     cfg.decoding_method = config_.decoding_method.c_str();
+    cfg.max_active_paths = config_.max_active_paths;
     cfg.rule_fsts = "";
     cfg.rule_fars = "";
 
@@ -175,6 +178,7 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
           pre_speech_.clear();
           pre_speech_size_ = 0;
         }
+        post_speech_size_ = 0;
         SherpaOnnxOnlineStreamAcceptWaveform(online_stream_, kSampleRate, w, window);
       } else if (!vad_ever_detected_) {
         pre_speech_.emplace_back(w, w + window);
@@ -183,6 +187,9 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
           pre_speech_size_ -= static_cast<int32_t>(pre_speech_.front().size());
           pre_speech_.erase(pre_speech_.begin());
         }
+      } else if (post_speech_size_ + window <= config_.max_post_speech_samples) {
+        SherpaOnnxOnlineStreamAcceptWaveform(online_stream_, kSampleRate, w, window);
+        post_speech_size_ += window;
       }
 
       // A completed VAD segment signals utterance end: finalize + reset stream.
@@ -200,6 +207,7 @@ void StreamingAsrPipeline::AcceptWaveform(const float* samples, int32_t n) {
         vad_ever_detected_ = false;
         pre_speech_.clear();
         pre_speech_size_ = 0;
+        post_speech_size_ = 0;
 
         if (!final_text.empty()) {
           double start_sec = 0.0;
@@ -287,6 +295,7 @@ void StreamingAsrPipeline::Flush() {
       vad_ever_detected_ = false;
       pre_speech_.clear();
       pre_speech_size_ = 0;
+      post_speech_size_ = 0;
 
       if (!final_text.empty()) {
         double start_sec = 0.0;
@@ -340,6 +349,7 @@ void StreamingAsrPipeline::Reset() {
   vad_ever_detected_ = false;
   pre_speech_.clear();
   pre_speech_size_ = 0;
+  post_speech_size_ = 0;
   partial_.clear();
   finalized_.clear();
   speaking_ = false;
