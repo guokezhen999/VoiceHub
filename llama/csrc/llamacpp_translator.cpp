@@ -511,6 +511,11 @@ LlamaTranslator::RunDecode(const std::vector<int32_t>& input_tokens,
     if (config_.chat_mode) {
         last_tokens_ = input_tokens;
         last_tokens_.insert(last_tokens_.end(), result.tokens.begin(), result.tokens.end());
+    } else {
+        // Clear sequence 0 (where translation runs) immediately to release GPU/CPU memory
+        if (ctx_) {
+            llama_memory_seq_rm(llama_get_memory(ctx_), 0, 0, -1);
+        }
     }
 
     return result;
