@@ -100,12 +100,50 @@ static bool ValidateModelDir(const std::string& export_dir, std::string* error) 
   if (!require("speechllm_meta.json")) return false;
   if (!require("metadata.json")) return false;
   if (!require("init_states.npz")) return false;
-  if (!require("llm-f16.gguf")) return false;
-  if (!require("encoder_adapter-chunk-16-left-128.onnx")) return false;
-  if (!fs::exists(fs::path(export_dir) / "special_token_input_patch.npz") &&
-      !fs::exists(fs::path(export_dir) / "special_token_input_patch.bin")) {
+  // Resolve filenames from meta so q4_k_m / q8_0 exports work too.
+  std::string gguf_file = "llm-f16.gguf";
+  std::string patch_file;
+  {
+    std::ifstream in(fs::path(export_dir) / "speechllm_meta.json");
+    if (in) {
+      try {
+        nlohmann::json meta;
+        in >> meta;
+        gguf_file = meta.value("gguf_file", gguf_file);
+        if (meta.contains("special_token_input_patch_file")) {
+          patch_file = meta["special_token_input_patch_file"].get<std::string>();
+        } else if (meta.contains("special_token_embeddings_file")) {
+          patch_file = meta["special_token_embeddings_file"].get<std::string>();
+        }
+      } catch (...) {
+      }
+    }
+  }
+  if (!require(gguf_file.c_str())) return false;
+
+  std::string onnx_file = "encoder_adapter-chunk-16-left-128.onnx";
+  {
+    std::ifstream in(fs::path(export_dir) / "metadata.json");
+    if (in) {
+      try {
+        nlohmann::json meta;
+        in >> meta;
+        onnx_file = meta.value("onnx_file", onnx_file);
+      } catch (...) {
+      }
+    }
+  }
+  if (!require(onnx_file.c_str())) return false;
+
+  const bool has_patch =
+      (!patch_file.empty() && fs::exists(fs::path(export_dir) / patch_file)) ||
+      fs::exists(fs::path(export_dir) / "special_token_input_patch.npz") ||
+      fs::exists(fs::path(export_dir) / "special_token_input_patch.int8.npz") ||
+      fs::exists(fs::path(export_dir) / "special_token_input_patch.bin");
+  if (!has_patch) {
     if (error) {
-      *error = "missing special_token_input_patch.npz/.bin in " + export_dir;
+      *error = "missing special_token_input_patch(.npz/.int8.npz/.bin) in " +
+               export_dir;
     }
     return false;
   }

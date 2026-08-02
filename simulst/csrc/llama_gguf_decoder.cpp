@@ -17,6 +17,27 @@ namespace {
 
 static const char* kSentEnd = ".?!。？！";
 
+// Symmetric per-token INT8 roundtrip used by quantized SpeechLLM exports.
+static void RoundtripAudioEmbedsInt8(float* embeds, int32_t num_frames,
+                                     int32_t n_embd, int32_t qmax) {
+  if (!embeds || num_frames <= 0 || n_embd <= 0 || qmax <= 0) return;
+  for (int32_t t = 0; t < num_frames; ++t) {
+    float* row = embeds + static_cast<size_t>(t) * static_cast<size_t>(n_embd);
+    float absmax = 0.0f;
+    for (int32_t i = 0; i < n_embd; ++i) {
+      absmax = std::max(absmax, std::fabs(row[i]));
+    }
+    if (absmax <= 0.0f) continue;
+    const float scale = absmax / static_cast<float>(qmax);
+    for (int32_t i = 0; i < n_embd; ++i) {
+      float q = std::round(row[i] / scale);
+      if (q > static_cast<float>(qmax)) q = static_cast<float>(qmax);
+      if (q < static_cast<float>(-qmax)) q = static_cast<float>(-qmax);
+      row[i] = q * scale;
+    }
+  }
+}
+
 }  // namespace
 
 LlamaGgufModel::~LlamaGgufModel() {
@@ -81,20 +102,28 @@ bool LlamaGgufModel::LoadTokenEmbdTable(const std::string& gguf_path, std::strin
 
   token_embd_.resize(static_cast<size_t>(n_vocab_) * static_cast<size_t>(n_embd_));
   const auto tensor_type = gguf_get_tensor_type(ctx_gguf, tensor_id);
+  const int64_t n_elems = n_vocab_ * n_embd_;
   if (tensor_type == GGML_TYPE_F16) {
     const auto* src = reinterpret_cast<const ggml_fp16_t*>(raw.data());
-    for (int64_t i = 0; i < n_vocab_ * n_embd_; ++i) {
+    for (int64_t i = 0; i < n_elems; ++i) {
       token_embd_[static_cast<size_t>(i)] = ggml_fp16_to_fp32(src[i]);
     }
   } else if (tensor_type == GGML_TYPE_F32) {
     std::memcpy(token_embd_.data(), raw.data(),
-                static_cast<size_t>(n_vocab_) * static_cast<size_t>(n_embd_) *
-                    sizeof(float));
+                static_cast<size_t>(n_elems) * sizeof(float));
   } else {
-    gguf_free(ctx_gguf);
-    ggml_free(ctx_meta);
-    if (error) *error = "unsupported token_embd dtype in " + gguf_path;
-    return false;
+    // Q4_K_M / Q8_0 / other GGUF quants: dequantize token_embd to f32 once.
+    const ggml_type_traits* traits = ggml_get_type_traits(tensor_type);
+    if (!traits || !traits->to_float) {
+      gguf_free(ctx_gguf);
+      ggml_free(ctx_meta);
+      if (error) {
+        *error = std::string("unsupported token_embd dtype ") +
+                 ggml_type_name(tensor_type) + " in " + gguf_path;
+      }
+      return false;
+    }
+    traits->to_float(raw.data(), token_embd_.data(), n_elems);
   }
 
   gguf_free(ctx_gguf);
@@ -557,12 +586,16 @@ std::string LlamaGgufDecoder::FeedChunk(
 
   const int32_t audio_frames = (audio_embeds && num_frames > 0) ? num_frames : 0;
   if (audio_embeds && num_frames > 0) {
-    current_segment_audio_.insert(current_segment_audio_.end(), audio_embeds, audio_embeds + num_frames * n_embd_);
-    const size_t audio_bytes =
-        static_cast<size_t>(num_frames) * static_cast<size_t>(n_embd_) * sizeof(float);
-    const size_t old = prefix.size();
-    prefix.resize(old + static_cast<size_t>(num_frames) * static_cast<size_t>(n_embd_));
-    std::memcpy(prefix.data() + old, audio_embeds, audio_bytes);
+    const size_t audio_elems =
+        static_cast<size_t>(num_frames) * static_cast<size_t>(n_embd_);
+    std::vector<float> audio_buf(audio_embeds, audio_embeds + audio_elems);
+    if (meta_.audio_embed_int8_roundtrip) {
+      RoundtripAudioEmbedsInt8(audio_buf.data(), num_frames, n_embd_,
+                               meta_.audio_qmax);
+    }
+    current_segment_audio_.insert(current_segment_audio_.end(), audio_buf.begin(),
+                                  audio_buf.end());
+    prefix.insert(prefix.end(), audio_buf.begin(), audio_buf.end());
   }
 
   const int32_t prefill_frames =

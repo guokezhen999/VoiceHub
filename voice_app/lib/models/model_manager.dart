@@ -481,9 +481,29 @@ class ModelInfo {
   }
 
   bool get _hasSimulstSpecialTokenPatch {
-    return _findFile('special_token_input_patch.npz') != null ||
+    if (_findFile('special_token_input_patch.npz') != null ||
+        _findFile('special_token_input_patch.int8.npz') != null ||
         _findFile('special_token_input_patch.bin') != null ||
-        _findFile('special_token_embeddings.npz') != null;
+        _findFile('special_token_embeddings.npz') != null) {
+      return true;
+    }
+    // Resolve filename from speechllm_meta.json (quantized exports).
+    final metaFile = File(p.join(path, 'speechllm_meta.json'));
+    if (metaFile.existsSync()) {
+      try {
+        final data = jsonDecode(metaFile.readAsStringSync());
+        for (final key in [
+          'special_token_input_patch_file',
+          'special_token_embeddings_file',
+        ]) {
+          final name = data[key]?.toString();
+          if (name != null && name.isNotEmpty) {
+            if (File(p.join(path, name)).existsSync()) return true;
+          }
+        }
+      } catch (_) {}
+    }
+    return false;
   }
 
   // TTS specific resolved paths

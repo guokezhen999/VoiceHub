@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <cstdarg>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <cmath>
 
 #include "c-api.h"
 #include "fbank_extractor.h"
@@ -48,20 +50,63 @@ static bool ReadBinaryFloats(const std::string& path, std::vector<float>* out) {
   return static_cast<bool>(in);
 }
 
+static bool DequantInt8Vector(const std::vector<int8_t>& q,
+                              const std::vector<float>& scale,
+                              std::vector<float>* out, std::string* error,
+                              const char* name) {
+  if (q.empty()) {
+    if (error) *error = std::string("missing int8 array: ") + name;
+    return false;
+  }
+  if (scale.empty()) {
+    if (error) *error = std::string("missing scale for: ") + name;
+    return false;
+  }
+  const float s = scale[0];
+  out->resize(q.size());
+  for (size_t i = 0; i < q.size(); ++i) {
+    (*out)[i] = static_cast<float>(q[i]) * s;
+  }
+  return true;
+}
+
 static bool LoadEmbPatchFromNpz(const std::string& path, SpeechLlmMeta* meta,
                                 std::string* error) {
   std::map<std::string, std::vector<float>> floats;
   std::map<std::string, std::vector<int64_t>> ints;
-  if (!NpzLoader::Load(path, floats, ints, error)) return false;
+  std::map<std::string, std::vector<int8_t>> int8s;
+  if (!NpzLoader::Load(path, floats, ints, error, nullptr, &int8s)) return false;
+
+  // FP32 patch (legacy exports).
   const auto it_a = floats.find("emb_a");
   const auto it_end = floats.find("emb_a_end");
-  if (it_a == floats.end() || it_end == floats.end()) {
-    if (error) *error = "npz missing emb_a or emb_a_end: " + path;
-    return false;
+  if (it_a != floats.end() && it_end != floats.end() &&
+      int8s.find("emb_a") == int8s.end()) {
+    meta->emb_a = it_a->second;
+    meta->emb_a_end = it_end->second;
+    return true;
   }
-  meta->emb_a = it_a->second;
-  meta->emb_a_end = it_end->second;
-  return true;
+
+  // INT8 + per-vector scale (Q4_K_M / Q8 quantized SpeechLLM exports).
+  const auto it_aq = int8s.find("emb_a");
+  const auto it_aendq = int8s.find("emb_a_end");
+  const auto it_as = floats.find("emb_a_scale");
+  const auto it_aends = floats.find("emb_a_end_scale");
+  if (it_aq != int8s.end() && it_aendq != int8s.end() &&
+      it_as != floats.end() && it_aends != floats.end()) {
+    if (!DequantInt8Vector(it_aq->second, it_as->second, &meta->emb_a, error,
+                           "emb_a")) {
+      return false;
+    }
+    if (!DequantInt8Vector(it_aendq->second, it_aends->second, &meta->emb_a_end,
+                           error, "emb_a_end")) {
+      return false;
+    }
+    return true;
+  }
+
+  if (error) *error = "npz missing emb_a or emb_a_end: " + path;
+  return false;
 }
 
 static bool LoadEmbPatchFromInlineJson(const nlohmann::json& patch,
@@ -147,38 +192,60 @@ bool StreamingAstPipeline::LoadMeta(const std::string& export_dir) {
     llm_meta_.token_w_id = meta.value("eos_token_id", llm_meta_.token_w_id);
   }
 
+  // Embedding quantization sidecar (present on Q4_K_M / Q8 SpeechLLM exports).
+  llm_meta_.audio_embed_int8_roundtrip = false;
+  llm_meta_.audio_qmax = 127;
+  auto apply_emb_quant = [&](const nlohmann::json& eq) {
+    if (!eq.value("enabled", false)) return;
+    llm_meta_.audio_embed_int8_roundtrip = true;
+    llm_meta_.audio_qmax = eq.value("audio_qmax", 127);
+  };
+  if (meta.contains("embedding_quantization")) {
+    apply_emb_quant(meta["embedding_quantization"]);
+  } else if (meta.contains("quantization") &&
+             meta["quantization"].contains("embeddings")) {
+    apply_emb_quant(meta["quantization"]["embeddings"]);
+  }
+
+  bool patch_loaded = false;
   if (meta.contains("special_token_input_patch")) {
     if (!LoadEmbPatchFromInlineJson(meta["special_token_input_patch"], &llm_meta_,
                                     &last_error_)) {
       return false;
     }
-    return true;
+    patch_loaded = true;
   }
 
-  std::vector<std::string> npz_candidates;
-  if (meta.contains("special_token_input_patch_file")) {
-    npz_candidates.push_back(meta["special_token_input_patch_file"].get<std::string>());
-  }
-  if (meta.contains("special_token_embeddings_file")) {
-    npz_candidates.push_back(meta["special_token_embeddings_file"].get<std::string>());
-  }
-  npz_candidates.push_back("special_token_input_patch.npz");
-  npz_candidates.push_back("special_token_embeddings.npz");
-
-  for (const auto& npz_name : npz_candidates) {
-    if (npz_name.empty()) continue;
-    const std::string npz_path = JoinPath(export_dir, npz_name);
-    if (LoadEmbPatchFromNpz(npz_path, &llm_meta_, &last_error_)) {
-      return true;
+  if (!patch_loaded) {
+    std::vector<std::string> npz_candidates;
+    if (meta.contains("special_token_input_patch_file")) {
+      npz_candidates.push_back(meta["special_token_input_patch_file"].get<std::string>());
     }
-    last_error_.clear();
+    if (meta.contains("special_token_embeddings_file")) {
+      npz_candidates.push_back(meta["special_token_embeddings_file"].get<std::string>());
+    }
+    npz_candidates.push_back("special_token_input_patch.npz");
+    npz_candidates.push_back("special_token_input_patch.int8.npz");
+    npz_candidates.push_back("special_token_embeddings.npz");
+
+    for (const auto& npz_name : npz_candidates) {
+      if (npz_name.empty()) continue;
+      const std::string npz_path = JoinPath(export_dir, npz_name);
+      if (LoadEmbPatchFromNpz(npz_path, &llm_meta_, &last_error_)) {
+        patch_loaded = true;
+        break;
+      }
+      last_error_.clear();
+    }
   }
 
-  const std::string bin_path = JoinPath(export_dir, "special_token_input_patch.bin");
-  if (LoadEmbPatchFromBin(bin_path, &llm_meta_, &last_error_)) {
-    return true;
+  if (!patch_loaded) {
+    const std::string bin_path = JoinPath(export_dir, "special_token_input_patch.bin");
+    if (!LoadEmbPatchFromBin(bin_path, &llm_meta_, &last_error_)) {
+      return false;
+    }
   }
-  return false;
+  return true;
 }
 
 bool StreamingAstPipeline::InitDecoders(std::string* error) {

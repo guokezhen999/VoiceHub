@@ -22,6 +22,9 @@ struct SpeechLlmMeta {
   int32_t token_w_id = 0;
   std::vector<float> emb_a;
   std::vector<float> emb_a_end;
+  // Match SpeechLLM embedding quantization at decode time (Q4/Q8 exports).
+  bool audio_embed_int8_roundtrip = false;
+  int32_t audio_qmax = 127;
 };
 
 struct SavedSegmentInputs {

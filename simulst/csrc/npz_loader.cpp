@@ -27,6 +27,7 @@ static uint32_t ReadU32LE(const uint8_t* p) {
 static bool ParseNpy(const std::vector<uint8_t>& raw,
                      std::vector<float>* out_float,
                      std::vector<int64_t>* out_int,
+                     std::vector<int8_t>* out_int8,
                      std::vector<int64_t>* out_shape,
                      std::string* error) {
   if (raw.size() < 10 || raw[0] != 0x93 ||
@@ -138,6 +139,26 @@ static bool ParseNpy(const std::vector<uint8_t>& raw,
     return true;
   }
 
+  // Skip metadata string arrays (e.g. quant_scheme).
+  if (descr.find('U') != std::string::npos || descr.find('S') != std::string::npos) {
+    return true;
+  }
+
+  // numpy int8: '|i1' / 'i1' / '<i1' / '>i1'
+  if (descr == "|i1" || descr == "i1" || descr == "<i1" || descr == ">i1") {
+    if (!out_int8) {
+      if (error) *error = "int8 arrays require int8_arrays output map";
+      return false;
+    }
+    if (payload_size < static_cast<size_t>(count)) {
+      if (error) *error = "truncated int8 payload";
+      return false;
+    }
+    out_int8->resize(static_cast<size_t>(count));
+    std::memcpy(out_int8->data(), payload, static_cast<size_t>(count));
+    return true;
+  }
+
   if (error) *error = "unsupported dtype: " + descr;
   return false;
 }
@@ -221,7 +242,8 @@ bool NpzLoader::Load(const std::string& path,
                      std::map<std::string, std::vector<float>>& float_arrays,
                      std::map<std::string, std::vector<int64_t>>& int_arrays,
                      std::string* error,
-                     std::map<std::string, std::vector<int64_t>>* shapes) {
+                     std::map<std::string, std::vector<int64_t>>* shapes,
+                     std::map<std::string, std::vector<int8_t>>* int8_arrays) {
   std::ifstream in(path, std::ios::binary);
   if (!in) {
     if (error) *error = "failed to open npz: " + path;
@@ -253,8 +275,10 @@ bool NpzLoader::Load(const std::string& path,
     std::string key = entry.name.substr(0, entry.name.size() - 4);
     std::vector<float> floats;
     std::vector<int64_t> ints;
+    std::vector<int8_t> int8s;
     std::vector<int64_t> shape;
-    if (!ParseNpy(entry.data, &floats, &ints, shapes ? &shape : nullptr, error)) {
+    if (!ParseNpy(entry.data, &floats, &ints, int8_arrays ? &int8s : nullptr,
+                  shapes ? &shape : nullptr, error)) {
       if (error) *error = key + ": " + *error;
       return false;
     }
@@ -264,10 +288,14 @@ bool NpzLoader::Load(const std::string& path,
     } else if (!ints.empty()) {
       int_arrays[key] = std::move(ints);
       if (shapes && !shape.empty()) (*shapes)[key] = std::move(shape);
+    } else if (!int8s.empty() && int8_arrays) {
+      (*int8_arrays)[key] = std::move(int8s);
+      if (shapes && !shape.empty()) (*shapes)[key] = std::move(shape);
     }
   }
 
-  if (float_arrays.empty() && int_arrays.empty()) {
+  const bool has_int8 = int8_arrays && !int8_arrays->empty();
+  if (float_arrays.empty() && int_arrays.empty() && !has_int8) {
     if (error) *error = "no arrays found in npz";
     return false;
   }
