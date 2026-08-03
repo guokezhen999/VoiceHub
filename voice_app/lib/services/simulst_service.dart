@@ -75,7 +75,7 @@ class SimulstService {
       'max_llm_kv_segments_base': 64,
       'encoder_provider': useGpu ? 'coreml' : 'auto',
       'encoder_num_threads': 1,
-      'n_ctx': 8192,
+      'n_ctx': Platform.isIOS ? 1024 : 4096,
       'n_batch': 512,
       'n_threads': 4,
       'n_gpu_layers': useGpu ? -1 : 0,
