@@ -53,7 +53,7 @@ VoiceHub provides extensive support for various open-source models:
 - **ASR (Speech Recognition)**: Supports `transducer` architecture models released by `sherpa-onnx`.
 - **TTS (Text-to-Speech)**: Supports `vits` architecture models released by `sherpa-onnx`.
 - **NMT (Small Translation Models)**: Requires exporting `opus_mt` models to ONNX format.
-- **LLM (Large Language Models)**: Supports open-source LLMs in the `gguf` format. We highly recommend using the **hy-mt2-1.7B** model for translation tasks.
+- **LLM (Large Language Models)**: Supports open-source LLMs in the `gguf` format. We highly recommend using the **hy-mt2-1.8B** model for translation tasks.
 
 ### ⚙️ Audio & VAD Settings
 During continuous audio recording, VoiceHub primarily relies on the **[silero-vad](https://github.com/snakers4/silero-vad)** model for Voice Activity Detection (VAD) and automatic sentence segmentation.
@@ -131,7 +131,7 @@ VoiceHub 为多种开源模型提供深度的本地推理支持：
 - **ASR (语音识别)**：支持由 `sherpa-onnx` 发布的 `transducer` 架构模型。
 - **TTS (语音合成)**：支持由 `sherpa-onnx` 发布的 `vits` 架构模型。
 - **小模型翻译 (NMT)**：需要将 `opus_mt` 模型导出为 ONNX 格式后使用。
-- **LLM (大语言模型)**：支持使用 `gguf` 格式的开源大模型。针对翻译场景，强烈推荐使用腾讯的 **hy-mt2-1.7B** 翻译大模型。
+- **LLM (大语言模型)**：支持使用 `gguf` 格式的开源大模型。针对翻译场景，强烈推荐使用腾讯的 **hy-mt2-1.8B** 翻译大模型。
 
 ### ⚙️ 录音与 VAD 设置
 在持续收音过程中，应用主要依赖于自带的 **[silero-vad](https://github.com/snakers4/silero-vad)** 模型来进行实时的语音端点检测与自动断句。
