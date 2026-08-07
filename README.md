@@ -71,6 +71,8 @@ VoiceHub's robust architecture is built upon several excellent open-source proje
 - **Kaldi-native-fbank** - Audio feature extraction
 
 ### 🚀 Release Versions
+- **v1.0.2**: SimulST memory optimizations (prompt KV/fbank/encoder release, iOS `n_ctx` tuning), Q4_K_M/Q8 quantized SpeechLLM support, and llama translation KV cache cleanup.
+- **v1.0.1**: ASR Beam Search default, hybrid VAD + Sherpa endpointing, anti-cutoff trailing silence, and chat UI cleanup.
 - **v1.0.0**: Initial release featuring core ASR, TTS, Opus-MT, and LLaMA native integrations, File Translation, and Dual Dialogue mode for macOS and iOS.
 
 ### 📚 Documentation & Tutorials
@@ -147,6 +149,8 @@ VoiceHub 的强大功能离不开以下优秀的开源项目：
 - **Kaldi-native-fbank** - 音频特征提取库
 
 ### 🚀 Release 版本
+- **v1.0.2**：同传内存优化（段落结束立刻释放 fbank/encoder/KV，iOS `n_ctx` 下调防 OOM）、支持 Q4_K_M/Q8 量化 SpeechLLM，以及翻译后立刻释放 llama KV cache。
+- **v1.0.1**：ASR 默认 Beam Search、VAD + Sherpa 双轨断句、尾端防吞字，以及聊天页 UI 精简。
 - **v1.0.0**：首发版本，包含核心 ASR、TTS、Opus-MT 以及 LLaMA 的原生集成，加入了离线文件翻译、双人对话等核心业务场景，完美支持 macOS 及 iOS 平台。
 
 ### 📚 教程与文档

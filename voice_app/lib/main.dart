@@ -2304,7 +2304,7 @@ class _AboutSettingsSheet extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   const Text(
-                    'v1.0.1 (Build 2)',
+                    'v1.0.2 (Build 1)',
                     style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
                   ),
                   const SizedBox(height: 6),
