@@ -1,7 +1,7 @@
 <div align="center">
   <img src="images/icon.png" width="120" alt="VoiceHub Icon">
   <h1>VoiceHub</h1>
-  <p>🌍 A Cross-Platform AI Voice & Translation App / 一款跨平台的端侧 AI 语音与翻译应用</p>
+  <p>🌍 A Cross-Platform On-Device Offline AI Voice & Translation App / 一款跨平台的端侧离线 AI 语音与翻译应用</p>
 </div>
 
 ---
